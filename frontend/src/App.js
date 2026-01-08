@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
+import BettingQuestion from './components/BettingQuestion';
 
 const API_URL = '/api';
+
+function generateCode(length = 6) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
 
 // ==================== ENTRY SCREEN ====================
 function EntryScreen({ onJoinAssessment, onCreateAssessment, onTeacherReport }) {
@@ -27,11 +37,15 @@ function EntryScreen({ onJoinAssessment, onCreateAssessment, onTeacherReport }) 
         throw new Error(data.error || 'Invalid code');
       }
 
+      // If code corresponds to a teacher, open teacher report flow
       if (data.isTeacher) {
-        onTeacherReport(code.toUpperCase());
-      } else {
-        onJoinAssessment(code.toUpperCase());
+        onTeacherReport(code);
+        return;
       }
+
+      // Otherwise start student join flow
+      onJoinAssessment(code);
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -251,14 +265,38 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
   const [name, setName] = useState('');
   const [initialCoins, setInitialCoins] = useState(1000);
   const [winMultiplier, setWinMultiplier] = useState(2.0);
-  const [timerSeconds, setTimerSeconds] = useState(30);
+  const [totalDurationMinutes, setTotalDurationMinutes] = useState(10);
+  const [studentCode, setStudentCode] = useState('');
+  const [teacherCode, setTeacherCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    // generate defaults when questions are loaded
+    if (questions && questions.length > 0 && !studentCode) {
+      const s = generateCode(6);
+      const t = `${s}-TCH-${Math.floor(1000 + Math.random() * 9000)}`;
+      setStudentCode(s);
+      setTeacherCode(t);
+    }
+  }, [questions, studentCode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    // basic client-side validation
+    const codeRegex = /^[A-Z0-9-]{3,40}$/;
+    if (!studentCode || !codeRegex.test(studentCode)) {
+      setError('Invalid student code. Use 3-40 letters/numbers/dashes.');
+      setLoading(false);
+      return;
+    }
+    if (!teacherCode || !codeRegex.test(teacherCode)) {
+      setError('Invalid teacher code. Use 3-40 letters/numbers/dashes.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const response = await fetch(`${API_URL}/assessment/create`, {
@@ -269,7 +307,10 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
           questions,
           initialCoins,
           winMultiplier,
-          timerSeconds
+          // send total duration in seconds
+          totalDuration: (totalDurationMinutes || 0) * 60,
+          studentCode,
+          teacherCode
         })
       });
 
@@ -298,6 +339,25 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
         </div>
 
         <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Student Code (editable)</label>
+            <input
+              type="text"
+              value={studentCode}
+              onChange={(e) => setStudentCode(e.target.value.toUpperCase())}
+              maxLength={40}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Teacher Code (editable)</label>
+            <input
+              type="text"
+              value={teacherCode}
+              onChange={(e) => setTeacherCode(e.target.value.toUpperCase())}
+              maxLength={40}
+            />
+          </div>
           <div className="form-group">
             <label>Assessment Name</label>
             <input
@@ -335,14 +395,14 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
           </div>
 
           <div className="form-group">
-            <label>Timer per Question (seconds)</label>
+            <label>Total Duration (minutes)</label>
             <input
               type="number"
-              value={timerSeconds}
-              onChange={(e) => setTimerSeconds(parseInt(e.target.value))}
-              min="10"
-              max="300"
-              step="5"
+              value={totalDurationMinutes}
+              onChange={(e) => setTotalDurationMinutes(parseInt(e.target.value) || 0)}
+              min="1"
+              max="1440"
+              step="1"
             />
           </div>
 
@@ -415,7 +475,7 @@ function CodesDisplay({ assessmentData, onDone }) {
           <p>📝 {assessmentData.questionCount} questions</p>
           <p>💰 {assessmentData.initialCoins} starting coins</p>
           <p>✨ {assessmentData.winMultiplier}x multiplier</p>
-          <p>⏱️ {assessmentData.timerSeconds} seconds per question</p>
+          <p>⏱️ {Math.round((assessmentData.totalDuration || assessmentData.timerSeconds || 0) / 60)} minutes total</p>
         </div>
 
         <button className="btn btn-primary btn-large" onClick={onDone}>
@@ -499,26 +559,27 @@ function StudentJoin({ code, onJoined }) {
 }
 
 // ==================== GAME SCREEN ====================
-function GameScreen({ code, studentId, studentName, sessionInfo, onComplete }) {
+function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, assessmentData }) {
   const [questionData, setQuestionData] = useState(null);
   const [bets, setBets] = useState({ A: 0, B: 0, C: 0, D: 0 });
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [currentCoins, setCurrentCoins] = useState(sessionInfo.initialCoins);
-  const [timeLeft, setTimeLeft] = useState(sessionInfo.timerSeconds);
-  const [startTime, setStartTime] = useState(null);
+  const [remainingTime, setRemainingTime] = useState(sessionInfo.remainingTime || sessionInfo.totalDuration || sessionInfo.timerSeconds);
+  const [lastActionTime, setLastActionTime] = useState(Date.now());
+  const [flash, setFlash] = useState(false);
 
   const loadQuestion = useCallback(async () => {
     setLoading(true);
-    setResult(null);
     setBets({ A: 0, B: 0, C: 0, D: 0 });
 
     try {
-      const response = await fetch(
-        `${API_URL}/assessment/${code}/student/${studentId}/question`
-      );
+      const response = await fetch(`${API_URL}/assessment/${code}/student/${studentId}/question`);
       const data = await response.json();
+
+    // Debug: log loaded question payload (helps detect empty option text)
+    console.debug('Loaded question payload:', data);
 
       if (data.complete) {
         onComplete();
@@ -527,36 +588,39 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete }) {
 
       setQuestionData(data);
       setCurrentCoins(data.currentCoins);
-      setTimeLeft(data.timerSeconds);
-      setStartTime(Date.now());
+      
+      // update global remaining time from server
+      if (typeof data.remainingTime === 'number') setRemainingTime(data.remainingTime);
+      setLastActionTime(Date.now());
+      // flash to indicate new question loaded
+      setFlash(true);
+      setTimeout(() => {
+        setFlash(false);
+        // keep the previous result visible until a new result arrives from submission
+      }, 700);
     } catch (err) {
       console.error('Failed to load question:', err);
     } finally {
       setLoading(false);
+      // result clearing is handled after flash completes above
     }
   }, [code, studentId, onComplete]);
 
-  useEffect(() => {
-    loadQuestion();
-  }, [loadQuestion]);
+  useEffect(() => { loadQuestion(); }, [loadQuestion]);
 
-  // Timer countdown
   useEffect(() => {
-    if (!questionData || result || loading) return;
+    if (loading) return;
 
-    if (timeLeft <= 0) {
-      handleSubmit(true); // Auto-submit on timeout
+    if (remainingTime <= 0) {
+      handleSubmit(true);
       return;
     }
 
-    const timer = setInterval(() => {
-      setTimeLeft(prev => prev - 1);
-    }, 1000);
-
+    const timer = setInterval(() => setRemainingTime(t => t - 1), 1000);
     return () => clearInterval(timer);
-  }, [timeLeft, questionData, result, loading]);
+  }, [remainingTime, questionData, loading]);
 
-  const totalBet = Object.values(bets).reduce((sum, val) => sum + val, 0);
+  const totalBet = Object.values(bets).reduce((s, v) => s + (v || 0), 0);
   const remainingCoins = currentCoins - totalBet;
 
   const handleBetChange = (option, amount) => {
@@ -570,40 +634,32 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete }) {
     setBets({ ...bets, [option]: newBet });
   };
 
-  const handleSkip = () => {
-    handleSubmit(false, true);
-  };
+  const handleSkip = () => handleSubmit(false, true);
 
   const handleSubmit = async (isTimeout = false, isSkip = false) => {
     if (submitting) return;
     setSubmitting(true);
 
-    const timeTaken = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
+    const timeTaken = lastActionTime ? Math.round((Date.now() - lastActionTime) / 1000) : 0;
     const noAnswer = isTimeout && totalBet === 0;
 
     try {
-      const response = await fetch(
-        `${API_URL}/assessment/${code}/student/${studentId}/submit`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            bets: isSkip || noAnswer ? {} : bets,
-            skipped: isSkip,
-            noAnswer: noAnswer,
-            timeTaken
-          })
-        }
-      );
+      const response = await fetch(`${API_URL}/assessment/${code}/student/${studentId}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bets: isSkip || noAnswer ? {} : bets, skipped: isSkip, noAnswer, timeTaken })
+      });
 
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to submit');
-      }
+      if (!response.ok) throw new Error(data.error || 'Failed to submit');
 
       setResult(data.results);
       setCurrentCoins(data.results.newTotal);
+
+      if (!data.results.isLastQuestion) {
+        // preload next question while result remains visible
+        loadQuestion();
+      }
     } catch (err) {
       alert(err.message);
     } finally {
@@ -611,147 +667,119 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete }) {
     }
   };
 
-  if (loading) {
-    return <div className="loading">Loading question...</div>;
-  }
-
-  if (!questionData) {
-    return <div className="loading">No question available</div>;
-  }
+  if (loading && !result) return <div className="loading">Loading question...</div>;
+  if (!questionData && !result) return <div className="loading">No question available</div>;
 
   const skipPenalty = Math.round((currentCoins * 0.05) / 10) * 10;
+
+  // disable inputs only while submitting, loading, or when the result is the final one
+  const inputsDisabled = submitting || loading || (result && result.isLastQuestion);
 
   return (
     <div className="game-container">
       <div className="game-header">
-        <div className="player-info">
-          <span className="name">{studentName}</span>
-        </div>
-        <div className="coins-display">
-          💰 {currentCoins}
-        </div>
-        <div className="progress">
-          Q{questionData.questionNumber}/{questionData.totalQuestions}
-        </div>
+        <div className="player-info"><span className="name">{studentName}</span></div>
+        <div className="coins-display">💰 {currentCoins}</div>
+        <div className="progress">Q{questionData.questionNumber}/{questionData.totalQuestions}</div>
       </div>
 
-      {!result ? (
-        <div className="question-card">
-          <div className={`timer ${timeLeft <= 10 ? 'warning' : ''} ${timeLeft <= 5 ? 'danger' : ''}`}>
-            ⏱️ {timeLeft}s
+      <div className="game-layout">
+        {/* Left: Question column (hide entirely if final result) */}
+        {!(result && result.isLastQuestion) && (
+          <div className={`question-column ${flash ? 'flash' : ''}`}>
+            <div className="question-card">
+              {loading && result && (
+                <div className="loading-overlay">Loading next question...</div>
+              )}
+              <div className={`timer ${remainingTime <= 10 ? 'warning' : ''} ${remainingTime <= 5 ? 'danger' : ''}`}>⏱️ {remainingTime}s</div>
+              <h2 className="question-text">{questionData.question.text}</h2>
+              {questionData.question.multipleCorrect && <div className="multi-hint">💡 Multiple correct answers possible!</div>}
+
+              {/* BettingQuestion component replaces per-option inputs and quick-bets */}
+              <div className="options-list">
+                {/* render the new component */}
+                <BettingQuestion
+                  question={questionData.question}
+                  remainingCoins={remainingCoins}
+                  winMultiplier={(assessmentData && assessmentData.winMultiplier) || 2}
+                  submitting={submitting}
+                  inputsDisabled={inputsDisabled}
+                  onPlaceBet={async (optionId, amount) => {
+                    // construct bets object for a single-option bet and submit directly
+                    const betsObj = { A:0, B:0, C:0, D:0 };
+                    betsObj[optionId] = amount;
+                    // submit using the same submit flow but with override
+                    if (submitting) return;
+                    setSubmitting(true);
+                    try {
+                      const timeTaken = lastActionTime ? Math.round((Date.now() - lastActionTime) / 1000) : 0;
+                      const response = await fetch(`${API_URL}/assessment/${code}/student/${studentId}/submit`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ bets: betsObj, skipped: false, noAnswer: false, timeTaken })
+                      });
+                      const data = await response.json();
+                      if (!response.ok) throw new Error(data.error || 'Failed to submit');
+                      setResult(data.results);
+                      setCurrentCoins(data.results.newTotal);
+                      if (!data.results.isLastQuestion) {
+                        loadQuestion();
+                      }
+                    } catch (err) {
+                      alert(err.message);
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  }}
+                  onSkip={() => handleSkip()}
+                />
+              </div>
+            </div>
           </div>
+        )}
 
-          <h2 className="question-text">{questionData.question.text}</h2>
-          
-          {questionData.question.multipleCorrect && (
-            <div className="multi-hint">💡 Multiple correct answers possible!</div>
-          )}
-
-          <div className="options-list">
-            {questionData.question.options.map(option => (
-              <div key={option.id} className="option-row">
-                <div className="option-label">
-                  <span className="option-letter">{option.id}</span>
-                  <span className="option-text">{option.text}</span>
+        {/* Right: Result pane (keeps question visible) */}
+        <div className="result-column">
+          {result && (
+            <div className="result-card">
+              {result.skipped ? (
+                <div>
+                  <h2 className="skipped">⏭️ Question Skipped</h2>
+                  <div className="penalty-info">Penalty: -{result.penalty} coins</div>
                 </div>
-                <div className="bet-controls">
-                  <input
-                    type="number"
-                    value={bets[option.id]}
-                    onChange={(e) => handleBetChange(option.id, parseInt(e.target.value) || 0)}
-                    min="0"
-                    max={remainingCoins + bets[option.id]}
-                  />
-                  <div className="quick-bets">
-                    <button onClick={() => handleQuickBet(option.id, 100)}>+100</button>
-                    <button onClick={() => handleQuickBet(option.id, 500)}>+500</button>
-                    <button onClick={() => handleQuickBet(option.id, 'all')}>All</button>
+              ) : result.noAnswer ? (
+                <div>
+                  <h2 className="timeout">⏰ Time's Up!</h2>
+                  <div className="penalty-info">No answer submitted - Penalty: -{result.penalty} coins</div>
+                </div>
+              ) : (
+                <div>
+                  <h2 className={result.netChange >= 0 ? 'win' : 'loss'}>{result.netChange >= 0 ? '🎉 You Won!' : '😢 Better Luck Next Time'}</h2>
+                  <div className="bet-results">
+                    {Object.entries(result.betResults || {}).map(([option, data]) => (
+                      <div key={option} className={`bet-result ${data.correct ? 'correct' : 'wrong'}`}>
+                        <span>Option {option}: {data.amount} coins</span>
+                        <span>{data.correct ? `+${data.winnings}` : data.winnings}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="result-summary">
+                    <div className="won">Won: +{result.coinsWon}</div>
+                    <div className="lost">Lost: -{result.coinsLost}</div>
+                    <div className={`net ${result.netChange >= 0 ? 'positive' : 'negative'}`}>Net: {result.netChange >= 0 ? '+' : ''}{result.netChange}</div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              )}
 
-          <div className="bet-summary">
-            <span>Total Bet: {totalBet} coins</span>
-            <span>Remaining: {remainingCoins} coins</span>
-          </div>
-
-          <div className="action-buttons">
-            <button
-              className="btn btn-primary btn-large"
-              onClick={() => handleSubmit(false, false)}
-              disabled={submitting || totalBet === 0}
-            >
-              {submitting ? '⏳ Submitting...' : '🎲 Lock In Bets!'}
-            </button>
-            
-            <button
-              className="btn btn-skip"
-              onClick={handleSkip}
-              disabled={submitting}
-            >
-              ⏭️ Skip (-{skipPenalty} coins)
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="result-card">
-          {result.skipped ? (
-            <>
-              <h2 className="skipped">⏭️ Question Skipped</h2>
-              <div className="penalty-info">
-                Penalty: -{result.penalty} coins
-              </div>
-            </>
-          ) : result.noAnswer ? (
-            <>
-              <h2 className="timeout">⏰ Time's Up!</h2>
-              <div className="penalty-info">
-                No answer submitted - Penalty: -{result.penalty} coins
-              </div>
-            </>
-          ) : (
-            <>
-              <h2 className={result.netChange >= 0 ? 'win' : 'loss'}>
-                {result.netChange >= 0 ? '🎉 You Won!' : '😢 Better Luck Next Time'}
-              </h2>
-
-              <div className="bet-results">
-                {Object.entries(result.betResults || {}).map(([option, data]) => (
-                  <div key={option} className={`bet-result ${data.correct ? 'correct' : 'wrong'}`}>
-                    <span>Option {option}: {data.amount} coins</span>
-                    <span>{data.correct ? `+${data.winnings}` : data.winnings}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="result-summary">
-                <div className="won">Won: +{result.coinsWon}</div>
-                <div className="lost">Lost: -{result.coinsLost}</div>
-                <div className={`net ${result.netChange >= 0 ? 'positive' : 'negative'}`}>
-                  Net: {result.netChange >= 0 ? '+' : ''}{result.netChange}
-                </div>
-              </div>
-            </>
+              <div className="correct-answers">Correct Answer(s): {result.correctAnswers.join(', ')}</div>
+              <div className="new-total">💰 New Total: {result.newTotal} coins</div>
+              <button className="btn btn-primary btn-large" onClick={result.isLastQuestion ? onComplete : () => setResult(null)}>
+                {result.isLastQuestion ? '🏆 View Results' : '➡️ Hide Result'}
+              </button>
+            </div>
           )}
-
-          <div className="correct-answers">
-            Correct Answer(s): {result.correctAnswers.join(', ')}
-          </div>
-
-          <div className="new-total">
-            💰 New Total: {result.newTotal} coins
-          </div>
-
-          <button
-            className="btn btn-primary btn-large"
-            onClick={result.isLastQuestion ? onComplete : loadQuestion}
-          >
-            {result.isLastQuestion ? '🏆 View Results' : '➡️ Next Question'}
-          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -983,7 +1011,7 @@ function TeacherReport({ code, onHome }) {
               <h3>⚙️ Assessment Settings</h3>
               <p>Initial Coins: {report.settings.initialCoins}</p>
               <p>Win Multiplier: {report.settings.winMultiplier}x</p>
-              <p>Timer: {report.settings.timerSeconds} seconds</p>
+              <p>Timer: {Math.round((report.settings.totalDuration || report.settings.timerSeconds || 0) / 60)} minutes</p>
             </div>
 
             {report.studentsNeedingHelp.length > 0 && (
@@ -1153,6 +1181,7 @@ function App() {
           studentId={studentId}
           studentName={studentName}
           sessionInfo={sessionInfo}
+          assessmentData={assessmentData}
           onComplete={() => setScreen('studentReport')}
         />
       )}

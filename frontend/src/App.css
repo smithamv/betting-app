@@ -151,7 +151,8 @@
 
 .entry-card h1 {
   font-size: 2rem;
-  color: #333;
+  color: #c00;
+  font-weight: 700;
   margin-bottom: 8px;
 }
 
@@ -178,7 +179,8 @@
 
 .upload-card h1 {
   font-size: 2rem;
-  color: #333;
+  color: #c00;
+  font-weight: 700;
   margin-bottom: 8px;
 }
 
@@ -315,7 +317,8 @@
 
 .setup-card h1, .join-card h1 {
   font-size: 2rem;
-  color: #333;
+  color: #c00;
+  font-weight: 700;
   margin-bottom: 8px;
   text-align: center;
 }
@@ -359,7 +362,8 @@
 }
 
 .codes-card h1 {
-  color: #333;
+  color: #c00;
+  font-weight: 700;
   margin-bottom: 10px;
 }
 
@@ -450,8 +454,51 @@
 
 /* ==================== GAME SCREEN ==================== */
 .game-container {
-  max-width: 800px;
+  max-width: 1100px;
   margin: 0 auto;
+}
+
+/* Two-column layout: question + result pane */
+.game-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.question-column {
+  flex: 2;
+}
+
+.result-column {
+  flex: 1;
+}
+
+.question-column .question-card {
+  position: relative;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.9);
+  font-weight: 700;
+  color: #333;
+  border-radius: 16px;
+  z-index: 10;
+}
+
+/* subtle flash when new question appears */
+.flash .question-card {
+  animation: highlight 0.8s ease-in-out;
+}
+
+@keyframes highlight {
+  0% { box-shadow: 0 0 0 rgba(102,126,234,0.0); }
+  50% { box-shadow: 0 8px 34px rgba(102,126,234,0.18); }
+  100% { box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
 }
 
 .game-header {

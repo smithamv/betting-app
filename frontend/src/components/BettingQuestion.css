@@ -1,0 +1,97 @@
+:root{
+  --bg-black:#0a0a0a;
+  --gold:#d4af37;
+  --white:#ffffff;
+  --red:#dc2626;
+}
+
+.betting-question{background:transparent;padding:12px 0;}
+.options-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px}
+.option-btn{display:flex;gap:10px;align-items:center;padding:12px;background:rgba(255,255,255,0.9);border:2px solid rgba(212,175,55,0.18);color:var(--bg-black);border-radius:12px;cursor:pointer}
+.option-btn .letter{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(212,175,55,0.12);font-weight:700;color:var(--bg-black)}
+.option-btn.selected{background:var(--gold);color:var(--bg-black);box-shadow:0 6px 25px rgba(212,175,55,0.18);border-color:var(--gold)}
+.opt-text{text-align:left}
+.placeholder{padding:18px;background:rgba(255,255,255,0.02);border-radius:10px;color:var(--white);text-align:center}
+
+.confidence-panel{animation:fadeSlide .28s ease both;background:rgba(255,255,255,0.02);border:1px solid rgba(212,175,55,0.18);padding:14px;border-radius:12px}
+.confidence-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.place-title{font-weight:700;color:var(--white)}
+.confidence-label{font-weight:700;color:var(--gold)}
+
+.slider-container{padding:8px 0}
+.confidence-slider{width:100%;height:10px;border-radius:6px;background:linear-gradient(90deg,var(--red) 0%,var(--gold) 100%);appearance:none;outline:none}
+.confidence-slider::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:var(--gold);border:3px solid var(--white);box-shadow:0 4px 15px rgba(212,175,55,0.45);cursor:pointer}
+.slider-labels{display:flex;justify-content:space-between;margin-top:6px;color:var(--white);font-weight:600}
+.label-low{color:var(--red)}.label-high{color:var(--gold)}
+
+.bet-summary{display:flex;justify-content:space-between;margin-top:12px;padding:8px;border-radius:8px;background: rgba(255,255,255,0.04);}
+.summary-item{display:flex;flex-direction:column;align-items:center}
+.summary-item .label{color:var(--white);font-weight:600}
+.summary-item .value{font-weight:800}
+.value.gold{color:var(--gold)}
+.value.red{color:var(--red)}
+
+.confidence-actions{display:flex;gap:8px;margin-top:12px}
+.submit-btn{flex:1;background:var(--gold);color:var(--bg-black);border:none;border-radius:10px;padding:12px;font-weight:700;box-shadow:0 6px 25px rgba(212,175,55,0.25);cursor:pointer}
+.submit-btn:disabled{opacity:0.6;cursor:not-allowed}
+.btn-skip-small{background:transparent;color:var(--white);border:1px solid rgba(255,255,255,0.06);padding:10px;border-radius:8px}
+
+@keyframes fadeSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes chipFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+
+/* touch friendly tweaks */
+.confidence-slider{touch-action:pan-x}
+
+/* ensure text contrasts correctly across elements */
+.betting-question .option-btn { color: var(--bg-black) !important; }
+.betting-question .option-btn .opt-text { color: var(--bg-black) !important; }
+.betting-question .option-btn .letter { color: var(--bg-black) !important; }
+.betting-question .option-btn.selected { color: var(--bg-black) !important; }
+.betting-question .option-btn.selected .opt-text { color: var(--bg-black) !important; }
+.betting-question .option-btn.selected .letter { color: var(--bg-black) !important; background: var(--gold) !important; }
+
+/* ensure slider labels & summary are readable */
+.betting-question .slider-labels, .betting-question .summary-item .label { color: var(--white) !important; }
+:root{
+  --bg-black:#0a0a0a;
+  --gold:#d4af37;
+  --white:#ffffff;
+  --red:#dc2626;
+}
+
+.betting-question{background:transparent;padding:12px 0;}
+.options-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px}
+.option-btn{display:flex;gap:10px;align-items:center;padding:12px;background:rgba(255,255,255,0.03);border:2px solid rgba(212,175,55,0.18);color:var(--white);border-radius:12px;cursor:pointer}
+.option-btn .letter{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);font-weight:700}
+.option-btn.selected{background:var(--gold);color:var(--bg-black);box-shadow:0 6px 25px rgba(212,175,55,0.18);border-color:var(--gold)}
+.opt-text{text-align:left}
+.placeholder{padding:18px;background:rgba(255,255,255,0.02);border-radius:10px;color:var(--white);text-align:center}
+
+.confidence-panel{animation:fadeSlide .28s ease both;background:rgba(255,255,255,0.02);border:1px solid rgba(212,175,55,0.18);padding:14px;border-radius:12px}
+.confidence-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.place-title{font-weight:700;color:var(--white)}
+.confidence-label{font-weight:700;color:var(--gold)}
+
+.slider-container{padding:8px 0}
+.confidence-slider{width:100%;height:10px;border-radius:6px;background:linear-gradient(90deg,var(--red) 0%,var(--gold) 100%);appearance:none;outline:none}
+.confidence-slider::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:var(--gold);border:3px solid var(--white);box-shadow:0 4px 15px rgba(212,175,55,0.45);cursor:pointer}
+.slider-labels{display:flex;justify-content:space-between;margin-top:6px;color:var(--white);font-weight:600}
+.label-low{color:var(--red)}.label-high{color:var(--gold)}
+
+.bet-summary{display:flex;justify-content:space-between;margin-top:12px;padding:8px;border-radius:8px}
+.summary-item{display:flex;flex-direction:column;align-items:center}
+.summary-item .label{color:var(--white);font-weight:600}
+.summary-item .value{font-weight:800}
+.value.gold{color:var(--gold)}
+.value.red{color:var(--red)}
+
+.confidence-actions{display:flex;gap:8px;margin-top:12px}
+.submit-btn{flex:1;background:var(--gold);color:var(--bg-black);border:none;border-radius:10px;padding:12px;font-weight:700;box-shadow:0 6px 25px rgba(212,175,55,0.25);cursor:pointer}
+.submit-btn:disabled{opacity:0.6;cursor:not-allowed}
+.btn-skip-small{background:transparent;color:var(--white);border:1px solid rgba(255,255,255,0.06);padding:10px;border-radius:8px}
+
+@keyframes fadeSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes chipFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+
+/* touch friendly tweaks */
+.confidence-slider{touch-action:pan-x}

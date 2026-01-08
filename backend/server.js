@@ -222,14 +222,45 @@ app.post('/api/questions/preview', (req, res) => {
 // Create new assessment
 app.post('/api/assessment/create', (req, res) => {
   try {
-    const { name, questions, initialCoins, winMultiplier, timerSeconds } = req.body;
+    const { name, questions, initialCoins, winMultiplier, timerSeconds, totalDuration } = req.body;
+    let { studentCode, teacherCode } = req.body || {};
 
     if (!questions || questions.length === 0) {
       return res.status(400).json({ error: 'No questions provided' });
     }
 
-    const studentCode = generateCode(6);
-    const teacherCode = `${studentCode}-TCH-${Math.floor(1000 + Math.random() * 9000)}`;
+    function sanitize(code) {
+      return String(code || '').trim().toUpperCase();
+    }
+
+    studentCode = sanitize(studentCode);
+    teacherCode = sanitize(teacherCode);
+
+    const codeRegex = /^[A-Z0-9-]{3,40}$/;
+
+    // Validate or generate studentCode
+    if (!studentCode) {
+      studentCode = generateCode(6);
+    } else {
+      if (!codeRegex.test(studentCode)) {
+        return res.status(400).json({ error: 'Invalid studentCode format' });
+      }
+      if (assessments[studentCode]) {
+        return res.status(400).json({ error: 'studentCode already in use' });
+      }
+    }
+
+    // Validate or generate teacherCode
+    if (!teacherCode) {
+      teacherCode = `${studentCode}-TCH-${Math.floor(1000 + Math.random() * 9000)}`;
+    } else {
+      if (!codeRegex.test(teacherCode)) {
+        return res.status(400).json({ error: 'Invalid teacherCode format' });
+      }
+      if (assessments[teacherCode]) {
+        return res.status(400).json({ error: 'teacherCode already in use' });
+      }
+    }
 
     const assessment = {
       id: uuidv4(),
@@ -250,14 +281,19 @@ app.post('/api/assessment/create', (req, res) => {
       })),
       initialCoins: initialCoins || 1000,
       winMultiplier: winMultiplier || 2.0,
+      // totalDuration is in seconds (sent from frontend). If not provided, fallback to per-question timerSeconds * question count
+      totalDuration: typeof totalDuration === 'number' && totalDuration > 0
+        ? totalDuration
+        : (timerSeconds || 30) * (questions.length || 1),
       timerSeconds: timerSeconds || 30,
       students: {},
       createdAt: new Date(),
       status: 'active'
     };
 
+    // Index by both codes (uppercase keys used throughout)
     assessments[studentCode] = assessment;
-    assessments[teacherCode] = assessment; // Also index by teacher code
+    assessments[teacherCode] = assessment;
 
     res.json({
       success: true,
@@ -267,7 +303,8 @@ app.post('/api/assessment/create', (req, res) => {
       questionCount: assessment.questions.length,
       initialCoins: assessment.initialCoins,
       winMultiplier: assessment.winMultiplier,
-      timerSeconds: assessment.timerSeconds
+      timerSeconds: assessment.timerSeconds,
+      totalDuration: assessment.totalDuration
     });
   } catch (error) {
     console.error('Create Assessment Error:', error);
@@ -309,7 +346,8 @@ app.post('/api/assessment/join', (req, res) => {
         questionCount: assessment.questions.length,
         initialCoins: assessment.initialCoins,
         winMultiplier: assessment.winMultiplier,
-        timerSeconds: assessment.timerSeconds,
+        totalDuration: assessment.totalDuration,
+        remainingTime: existingStudent.remainingTime,
         currentQuestion: existingStudent.currentQuestion,
         currentCoins: existingStudent.coins
       });
@@ -323,7 +361,9 @@ app.post('/api/assessment/join', (req, res) => {
       coins: assessment.initialCoins,
       currentQuestion: 0,
       responses: [],
-      joinedAt: new Date()
+      joinedAt: new Date(),
+      // remainingTime in seconds for the whole assessment
+      remainingTime: assessment.totalDuration
     };
 
     res.json({
@@ -333,7 +373,8 @@ app.post('/api/assessment/join', (req, res) => {
       questionCount: assessment.questions.length,
       initialCoins: assessment.initialCoins,
       winMultiplier: assessment.winMultiplier,
-      timerSeconds: assessment.timerSeconds,
+      totalDuration: assessment.totalDuration,
+      remainingTime: assessment.totalDuration,
       currentQuestion: 0,
       currentCoins: assessment.initialCoins
     });
@@ -377,6 +418,10 @@ app.get('/api/assessment/:code/student/:studentId/question', (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
+    if (student.remainingTime <= 0) {
+      return res.json({ complete: true, reason: 'time_up' });
+    }
+
     if (student.currentQuestion >= assessment.questions.length) {
       return res.json({ complete: true });
     }
@@ -393,7 +438,7 @@ app.get('/api/assessment/:code/student/:studentId/question', (req, res) => {
         multipleCorrect: question.multipleCorrect
       },
       currentCoins: student.coins,
-      timerSeconds: assessment.timerSeconds
+      remainingTime: student.remainingTime
     });
   } catch (error) {
     console.error('Get Question Error:', error);
@@ -420,6 +465,25 @@ app.post('/api/assessment/:code/student/:studentId/submit', (req, res) => {
     const question = assessment.questions[student.currentQuestion];
     if (!question) {
       return res.status(400).json({ error: 'No more questions' });
+    }
+
+    // Deduct elapsed assessment time from student's remainingTime
+    const elapsed = parseInt(timeTaken || 0, 10);
+    student.remainingTime = Math.max(0, (student.remainingTime || assessment.totalDuration) - elapsed);
+
+    // If time is up, finalize and return last-state
+    if (student.remainingTime <= 0) {
+      // mark as complete
+      student.currentQuestion = assessment.questions.length;
+      return res.json({
+        success: true,
+        results: {
+          timeUp: true,
+          isLastQuestion: true,
+          newTotal: student.coins,
+          remainingTime: 0
+        }
+      });
     }
 
     let response = {
@@ -495,17 +559,19 @@ app.post('/api/assessment/:code/student/:studentId/submit', (req, res) => {
       };
     }
 
+    // push response and advance
     student.responses.push(response);
     student.currentQuestion++;
 
-    const isLastQuestion = student.currentQuestion >= assessment.questions.length;
+    const isLastQuestion = student.currentQuestion >= assessment.questions.length || student.remainingTime <= 0;
 
     res.json({
       success: true,
       results: {
         ...response,
         newTotal: student.coins,
-        isLastQuestion
+        isLastQuestion,
+        remainingTime: student.remainingTime
       }
     });
   } catch (error) {
@@ -601,7 +667,7 @@ app.get('/api/assessment/:code/student/:studentId/report', (req, res) => {
         
         // Settings
         winMultiplier: assessment.winMultiplier,
-        timerSeconds: assessment.timerSeconds
+        totalDuration: assessment.totalDuration
       }
     });
   } catch (error) {
@@ -738,7 +804,7 @@ app.get('/api/assessment/:code/teacher/report', (req, res) => {
         settings: {
           initialCoins: assessment.initialCoins,
           winMultiplier: assessment.winMultiplier,
-          timerSeconds: assessment.timerSeconds
+          totalDuration: assessment.totalDuration
         },
         
         classStats,
@@ -889,7 +955,9 @@ app.get('/api/assessment/:code/teacher/pdf', (req, res) => {
     doc.text(`Total Questions: ${totalQuestions}`);
     doc.text(`Initial Coins: ${assessment.initialCoins}`);
     doc.text(`Win Multiplier: ${assessment.winMultiplier}x`);
-    doc.text(`Timer: ${assessment.timerSeconds} seconds`);
+    // totalDuration is in seconds
+    const minutes = Math.round((assessment.totalDuration || assessment.timerSeconds) / 60);
+    doc.text(`Total Duration: ${minutes} minutes`);
     doc.moveDown();
 
     // Leaderboard
