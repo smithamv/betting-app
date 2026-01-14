@@ -1,0 +1,4 @@
+question,question_image,option_a,option_a_image,option_b,option_b_image,option_c,option_c_image,option_d,option_d_image,correct_answer,multiple_correct
+"What is the capital of France?","images/q1.jpg","London","images/q1_a.jpg","Paris","images/q1_b.jpg","Berlin","","Madrid","","B","no"
+"Which are primary colors?","","Red","","Green","","Blue","","Yellow","","A,C","yes"
+"What is 5 + 7?","","10","","11","","12","","13","","C","no"

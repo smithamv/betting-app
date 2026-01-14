@@ -98,8 +98,23 @@ function QuestionUpload({ onQuestionsValidated }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const downloadTemplate = () => {
-    window.open(`${API_URL}/template`, '_blank');
+  const downloadTemplate = async () => {
+    try {
+      const res = await fetch(`${API_URL}/template`);
+      if (!res.ok) throw new Error('Failed to download template');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'questions_template.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download template error:', err);
+      alert('Unable to download template. Is the backend running?');
+    }
   };
 
   const handleFileChange = (e) => {
@@ -111,7 +126,7 @@ function QuestionUpload({ onQuestionsValidated }) {
 
   const handlePreview = async () => {
     if (!file) {
-      setError('Please select a CSV file first');
+      setError('Please select a file first');
       return;
     }
 
@@ -119,26 +134,122 @@ function QuestionUpload({ onQuestionsValidated }) {
     setError(null);
 
     try {
+      // If CSV, do a quick client-side header validation before sending
+      const isZip = file.name && file.name.toLowerCase().endsWith('.zip');
+      if (!isZip && file.name && file.name.toLowerCase().endsWith('.csv')) {
+        const text = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.onload = () => resolve(reader.result);
+          reader.readAsText(file, 'utf-8');
+        });
+
+        const lines = text.split(/\r?\n/).filter(l => l && l.trim());
+        if (lines.length === 0) throw new Error('CSV file is empty');
+        const headerLine = lines[0];
+
+        // simple CSV header parser that respects quoted fields
+        const parseCsvLine = (line) => {
+          const fields = [];
+          let cur = '';
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+              if (inQuotes && line[i+1] === '"') {
+                cur += '"'; // escaped quote
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (ch === ',' && !inQuotes) {
+              fields.push(cur);
+              cur = '';
+            } else {
+              cur += ch;
+            }
+          }
+          fields.push(cur);
+          return fields.map(f => f.trim().replace(/^"|"$/g, '').replace(/""/g, '"'));
+        };
+
+        const headerFields = parseCsvLine(headerLine).map(h => h.toLowerCase());
+        const requiredBase = ['question','option_a','option_b','option_c','option_d','multiple_correct'];
+        const hasCorrect = headerFields.includes('correct_answer') || headerFields.includes('correct_answers');
+        if (!hasCorrect) {
+          throw new Error('CSV missing required column: correct_answer or correct_answers');
+        }
+        const missing = requiredBase.filter(r => !headerFields.includes(r));
+        if (missing.length > 0) {
+          throw new Error('CSV missing required columns: ' + missing.join(', '));
+        }
+      }
+
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/questions/preview`, {
+      // choose endpoint based on file extension (recompute isZip after validation block)
+      const isZip2 = file.name && file.name.toLowerCase().endsWith('.zip');
+      const endpoint = isZip2 ? `${API_URL}/questions/upload_zip` : `${API_URL}/questions/preview`;
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData
       });
 
+      const contentType = response.headers.get('content-type') || '';
       const text = await response.text();
       if (!text) {
         throw new Error('Server returned empty response. Make sure backend is running.');
       }
 
-      const data = JSON.parse(text);
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to parse CSV');
+      let data;
+      if (contentType.includes('application/json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          throw new Error('Invalid JSON response from server');
+        }
+      } else {
+        // Likely an HTML error page (e.g., dev server served index.html)
+        const snippet = text.substring(0, 1000);
+        throw new Error('Server returned non-JSON response. Ensure backend is running and endpoint is available.\n' + snippet);
       }
 
-      setPreview(data);
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to parse file');
+      }
+
+      // Normalize preview shape: CSV preview returns { parsedQuestions, errors, validQuestions }
+      // ZIP upload returns { questions: [ { question, question_image, option_a, option_a_image, ... } ] }
+      if (isZip) {
+        // map to expected parsedQuestions shape with image data
+        const mapped = data.questions.map(q => ({
+          question: q.question,
+          question_image: q.question_image || null,
+          option_a: q.option_a,
+          option_a_image: q.option_a_image || null,
+          option_b: q.option_b,
+          option_b_image: q.option_b_image || null,
+          option_c: q.option_c,
+          option_c_image: q.option_c_image || null,
+          option_d: q.option_d,
+          option_d_image: q.option_d_image || null,
+          correct_answers: Array.isArray(q.correct_answer) ? q.correct_answer : (q.correct_answer ? q.correct_answer.toString().split(',').map(s=>s.trim()) : []),
+          multiple_correct: false
+        }));
+
+        setPreview({
+          success: true,
+          totalRows: mapped.length,
+          validQuestions: mapped.length,
+          errors: [],
+          parsedQuestions: mapped,
+          raw: data
+        });
+      } else {
+        setPreview(data);
+      }
     } catch (err) {
       if (err.message.includes('Failed to fetch')) {
         setError('Cannot connect to server. Make sure backend is running.');
@@ -172,10 +283,11 @@ function QuestionUpload({ onQuestionsValidated }) {
 
         <div className="upload-section">
           <h3>Step 2: Upload Your Questions</h3>
+          <p className="muted">You can upload a CSV or a ZIP. For CSV include these columns exactly: <code>question,question_image,option_a,option_a_image,option_b,option_b_image,option_c,option_c_image,option_d,option_d_image,correct_answer,multiple_correct</code>. To upload images, send a ZIP with a <strong>questions.xlsx</strong> file and an <strong>images/</strong> folder — image filenames referenced in the sheet must appear in the <strong>images/</strong> folder.</p>
           <div className="file-input-wrapper">
             <input
               type="file"
-              accept=".csv"
+              accept=".csv,.zip,application/zip"
               onChange={handleFileChange}
               id="csv-upload"
             />
@@ -225,20 +337,28 @@ function QuestionUpload({ onQuestionsValidated }) {
                 <div className="preview-table-wrapper">
                   <table className="preview-table">
                     <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Question</th>
-                        <th>Correct</th>
-                        <th>Type</th>
-                      </tr>
+                        <tr>
+                          <th>#</th>
+                          <th>Question</th>
+                          <th>Image</th>
+                          <th>Correct</th>
+                          <th>Type</th>
+                        </tr>
                     </thead>
                     <tbody>
                       {preview.parsedQuestions.map((q, idx) => (
                         <tr key={idx}>
                           <td>{idx + 1}</td>
-                          <td className="question-cell">{q.question}</td>
-                          <td className="correct-cell">{q.correct_answers.join(', ')}</td>
-                          <td>{q.multiple_correct ? 'Multiple' : 'Single'}</td>
+                            <td className="question-cell">{q.question}</td>
+                            <td className="img-cell">
+                              {q.question_image ? (
+                                <img src={q.question_image} alt={`q${idx+1}`} style={{ maxWidth: 120, maxHeight: 80 }} />
+                              ) : (
+                                <span className="small muted">—</span>
+                              )}
+                            </td>
+                            <td className="correct-cell">{(q.correct_answers || []).join(', ')}</td>
+                            <td>{q.multiple_correct ? 'Multiple' : 'Single'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -314,7 +434,21 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
         })
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      const text = await response.text();
+      if (!text) throw new Error('Empty response from server. Is the backend running?');
+
+      let data;
+      if (contentType.includes('application/json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          throw new Error('Invalid JSON response from server');
+        }
+      } else {
+        const snippet = text.substring(0, 1000);
+        throw new Error('Server returned non-JSON response. Ensure backend is running and endpoint is available.\n' + snippet);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to create assessment');
@@ -387,10 +521,10 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
               value={winMultiplier} 
               onChange={(e) => setWinMultiplier(parseFloat(e.target.value))}
             >
-              <option value="1.5">1.5x</option>
-              <option value="2.0">2.0x</option>
-              <option value="2.5">2.5x</option>
-              <option value="3.0">3.0x</option>
+              <option value={1.5}>1.5x</option>
+              <option value={2.0}>2.0x</option>
+              <option value={2.5}>2.5x</option>
+              <option value={3.0}>3.0x</option>
             </select>
           </div>
 
@@ -623,8 +757,18 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
   const totalBet = Object.values(bets).reduce((s, v) => s + (v || 0), 0);
   const remainingCoins = currentCoins - totalBet;
 
+  
+
   const handleBetChange = (option, amount) => {
-    const newAmount = Math.max(0, Math.min(amount, currentCoins - totalBet + bets[option]));
+    // Allow empty string while editing in child component
+    if (amount === '' || amount === null) {
+      setBets(prev => ({ ...prev, [option]: '' }));
+      return;
+    }
+
+    const amtNum = Number(amount || 0);
+    const maxForOption = currentCoins - totalBet + Number(bets[option] || 0);
+    const newAmount = Math.max(0, Math.min(amtNum, maxForOption));
     setBets({ ...bets, [option]: newAmount });
   };
 
@@ -644,10 +788,14 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
     const noAnswer = isTimeout && totalBet === 0;
 
     try {
+      // sanitize bets: convert empty strings to 0 and ensure numbers
+      const sanitizedBets = Object.fromEntries(Object.entries(bets || {}).map(([k, v]) => [k, Number(v) || 0]));
+      const payloadBets = isSkip || noAnswer ? {} : sanitizedBets;
+
       const response = await fetch(`${API_URL}/assessment/${code}/student/${studentId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bets: isSkip || noAnswer ? {} : bets, skipped: isSkip, noAnswer, timeTaken })
+        body: JSON.stringify({ bets: payloadBets, skipped: isSkip, noAnswer, timeTaken })
       });
 
       const data = await response.json();
@@ -655,6 +803,13 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
 
       setResult(data.results);
       setCurrentCoins(data.results.newTotal);
+
+      // If student has no coins left, show message and go to results
+      if (typeof data.results.newTotal === 'number' && data.results.newTotal <= 0) {
+        alert('You have no coins left. Showing results.');
+        onComplete();
+        return;
+      }
 
       if (!data.results.isLastQuestion) {
         // preload next question while result remains visible
@@ -692,6 +847,11 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
                 <div className="loading-overlay">Loading next question...</div>
               )}
               <div className={`timer ${remainingTime <= 10 ? 'warning' : ''} ${remainingTime <= 5 ? 'danger' : ''}`}>⏱️ {remainingTime}s</div>
+              {questionData.question.question_image && (
+                <div className="question-image-wrapper">
+                  <img src={questionData.question.question_image} alt="question" style={{ maxWidth: '100%', maxHeight: 240, objectFit: 'contain', marginBottom: 10 }} />
+                </div>
+              )}
               <h2 className="question-text">{questionData.question.text}</h2>
               {questionData.question.multipleCorrect && <div className="multi-hint">💡 Multiple correct answers possible!</div>}
 
@@ -700,39 +860,21 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
                 {/* render the new component */}
                 <BettingQuestion
                   question={questionData.question}
+                  bets={bets}
                   remainingCoins={remainingCoins}
                   winMultiplier={(assessmentData && assessmentData.winMultiplier) || 2}
                   submitting={submitting}
                   inputsDisabled={inputsDisabled}
-                  onPlaceBet={async (optionId, amount) => {
-                    // construct bets object for a single-option bet and submit directly
-                    const betsObj = { A:0, B:0, C:0, D:0 };
-                    betsObj[optionId] = amount;
-                    // submit using the same submit flow but with override
-                    if (submitting) return;
-                    setSubmitting(true);
-                    try {
-                      const timeTaken = lastActionTime ? Math.round((Date.now() - lastActionTime) / 1000) : 0;
-                      const response = await fetch(`${API_URL}/assessment/${code}/student/${studentId}/submit`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ bets: betsObj, skipped: false, noAnswer: false, timeTaken })
-                      });
-                      const data = await response.json();
-                      if (!response.ok) throw new Error(data.error || 'Failed to submit');
-                      setResult(data.results);
-                      setCurrentCoins(data.results.newTotal);
-                      if (!data.results.isLastQuestion) {
-                        loadQuestion();
-                      }
-                    } catch (err) {
-                      alert(err.message);
-                    } finally {
-                      setSubmitting(false);
-                    }
-                  }}
-                  onSkip={() => handleSkip()}
+                  onBetChange={handleBetChange}
                 />
+              </div>
+              <div className="action-buttons" style={{ marginTop: 12 }}>
+                <button className="btn btn-primary btn-large" onClick={() => handleSubmit(false, false)} disabled={submitting || inputsDisabled}>
+                  {submitting ? '⏳ Submitting...' : '✅ Submit Bets'}
+                </button>
+                <button className="btn btn-skip" onClick={() => handleSkip()} disabled={submitting || inputsDisabled} style={{ marginTop: 8 }}>
+                  ⏭️ Skip Question (-{skipPenalty} coins)
+                </button>
               </div>
             </div>
           </div>

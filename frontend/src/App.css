@@ -1,4 +1,26 @@
 /* ==================== GLOBAL STYLES ==================== */
+.root-theme {}
+:root{
+  --page-red-1: #6b1010;
+  --page-red-2: #4b0a0a;
+  --gold: #d4af37;
+  --text-offwhite: #f6ecd7;
+  --control-surface: rgba(0,0,0,0.36);
+}
+
+/* Full-page red background with subtle gradient */
+body{
+  background: linear-gradient(180deg,var(--page-red-1),var(--page-red-2));
+  color: var(--text-offwhite);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* Headings and accents use gold */
+h1,h2,h3,h4,.bq-letter,.bq-value.win{
+  color: var(--gold) !important;
+}
+
 .app {
   min-height: 100vh;
   padding: 20px;
@@ -819,6 +841,61 @@
   color: #333;
   margin-bottom: 5px;
 }
+
+/* ==================== THEMED CARD SURFACES (UNIFY ACROSS SCREENS) ==================== */
+/* Use the theme tokens added earlier: --page-red-1/2, --gold, --text-offwhite, --control-surface */
+.card-surface, .entry-card, .upload-card, .setup-card, .join-card, .codes-card, .preview-card, .upload-card, .codes-card {
+  background: linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.32));
+  color: var(--text-offwhite);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.45);
+}
+
+/* File input and template sections should match card surface */
+.template-section, .upload-section, .preview-section, .file-label {
+  background: linear-gradient(180deg, rgba(0,0,0,0.08), rgba(0,0,0,0.24));
+  color: var(--text-offwhite);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
+/* Preview table styling to fit dark surface */
+.preview-table th, .preview-table td {
+  color: var(--text-offwhite);
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.preview-table th {
+  background: rgba(0,0,0,0.12);
+  font-weight:700;
+}
+
+/* Code badges and small UI pieces use gold accents */
+.code-badge, .code-box.teacher-code, .code-box.student-code {
+  color: var(--text-offwhite) !important;
+}
+
+/* Make CTAs consistent: primary gold button, secondary transparent */
+.btn-primary, .submit-btn {
+  background: var(--gold) !important;
+  color: #0b0b0b !important;
+  border: none !important;
+}
+.btn-skip, .btn-skip-small, .btn-secondary {
+  background: transparent !important;
+  color: var(--text-offwhite) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* Ensure headings inside cards use gold accent */
+.entry-card h1, .upload-card h1, .setup-card h1, .join-card h1, .codes-card h1 {
+  color: var(--gold) !important;
+}
+
+/* Small helper text muted but legible */
+.subtitle, .template-section p, .upload-section p, .preview-summary .valid, .preview-summary .invalid {
+  color: rgba(246,236,215,0.85) !important;
+}
+
 
 .report-header h2 {
   color: #333;

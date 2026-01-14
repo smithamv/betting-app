@@ -2,6 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
+const AdmZip = require('adm-zip');
+const xlsx = require('xlsx');
+const sharp = require('sharp');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { Pool } = require('pg');
 const { parse } = require('csv-parse/sync');
 const PDFDocument = require('pdfkit');
 const { v4: uuidv4 } = require('uuid');
@@ -13,19 +20,34 @@ const PORT = process.env.PORT || 3001;
 const storage = multer.memoryStorage();
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only CSV files are allowed'));
+    const name = String(file.originalname || '').toLowerCase();
+    const mime = String(file.mimetype || '').toLowerCase();
+
+    const csvMimes = ['text/csv', 'application/vnd.ms-excel', 'application/csv', 'text/plain'];
+    const zipMimes = ['application/zip', 'application/x-zip-compressed', 'multipart/x-zip'];
+
+    if (csvMimes.includes(mime) || name.endsWith('.csv')) {
+      return cb(null, true);
     }
+
+    if (zipMimes.includes(mime) || name.endsWith('.zip')) {
+      return cb(null, true);
+    }
+
+    return cb(new Error('Only CSV or ZIP files are allowed'));
   }
 });
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+// Increase body size limits to support large payloads (questions with base64 images)
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
+// Optional: Postgres pool (configuration via DATABASE_URL)
+const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
 
 // ==================== IN-MEMORY DATABASE ====================
 let assessments = {}; // Stores all assessment sessions
@@ -107,7 +129,7 @@ function validateQuestions(records) {
   const parsedQuestions = [];
   let validCount = 0;
 
-  const requiredColumns = ['question', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_answer', 'multiple_correct'];
+  const requiredColumns = ['question', 'option_a', 'option_b', 'option_c', 'option_d', 'multiple_correct'];
 
   records.forEach((record, index) => {
     const rowNum = index + 2;
@@ -119,8 +141,9 @@ function validateQuestions(records) {
       }
     });
 
-    if (record.correct_answer) {
-      const answers = record.correct_answer.toUpperCase().split(',').map(a => a.trim());
+    const rawCorrect = record.correct_answer || record.correct_answers || '';
+    if (rawCorrect) {
+      const answers = rawCorrect.toString().toUpperCase().split(',').map(a => a.trim());
       const validOptions = ['A', 'B', 'C', 'D'];
       const invalidAnswers = answers.filter(a => !validOptions.includes(a));
       
@@ -140,7 +163,7 @@ function validateQuestions(records) {
       errors.push({ row: rowNum, errors: rowErrors });
     } else {
       validCount++;
-      const correctAnswers = record.correct_answer.toUpperCase().split(',').map(a => a.trim());
+      const correctAnswers = (record.correct_answer || record.correct_answers || '').toString().toUpperCase().split(',').map(a => a.trim());
       parsedQuestions.push({
         row: rowNum,
         question: record.question,
@@ -161,10 +184,10 @@ function validateQuestions(records) {
 
 // Download CSV template
 app.get('/api/template', (req, res) => {
-  const template = `question,option_a,option_b,option_c,option_d,correct_answer,multiple_correct
-"What is the capital of France?","London","Paris","Berlin","Madrid","B","no"
-"Which are primary colors?","Red","Green","Blue","Yellow","A,C","yes"
-"What is 5 + 7?","10","11","12","13","C","no"`;
+  const template = `question,question_image,option_a,option_a_image,option_b,option_b_image,option_c,option_c_image,option_d,option_d_image,correct_answer,multiple_correct
+"What is the capital of France?","images/q1.jpg","London","images/q1_a.jpg","Paris","images/q1_b.jpg","Berlin","","Madrid","","B","no"
+"Which are primary colors?","","Red","","Green","","Blue","","Yellow","","A,C","yes"
+"What is 5 + 7?","","10","","11","","12","","13","","C","no"`;
   
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="questions_template.csv"');
@@ -215,6 +238,179 @@ app.post('/api/questions/preview', (req, res) => {
       });
     }
   });
+});
+
+// ==================== ZIP IMAGE UPLOAD ====================
+// Accepts a single ZIP file containing questions.xlsx and images/ folder.
+app.post('/api/questions/upload_zip', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  // simple size guard (e.g., 50MB)
+  if (req.file.size > 50 * 1024 * 1024) {
+    return res.status(400).json({ error: 'ZIP file too large (limit 50MB)' });
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'quiz-'));
+
+  try {
+    // write zip to temp
+    const zipPath = path.join(tmpDir, 'upload.zip');
+    fs.writeFileSync(zipPath, req.file.buffer);
+
+    // extract
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(tmpDir, true);
+
+    // locate questions.xlsx
+    const xlsxPath = path.join(tmpDir, 'questions.xlsx');
+    if (!fs.existsSync(xlsxPath)) {
+      throw new Error('questions.xlsx not found in ZIP root');
+    }
+
+    // parse workbook
+    const workbook = xlsx.readFile(xlsxPath);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const records = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+
+    // required columns
+    const required = [
+      'question','question_image','option_a','option_a_image','option_b','option_b_image','option_c','option_c_image','option_d','option_d_image','multiple_correct'
+    ];
+
+    // validate columns present in header
+    const header = Object.keys(records[0] || {});
+    // allow either correct_answer or correct_answers
+    const hasCorrectCol = header.includes('correct_answer') || header.includes('correct_answers');
+    if (!hasCorrectCol) throw new Error('Missing required column: correct_answer or correct_answers');
+
+    for (const col of required) {
+      if (!header.includes(col)) {
+        throw new Error(`Missing required column: ${col}`);
+      }
+    }
+
+    // process each record, map images
+    const processed = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      const rowNum = i + 2;
+
+      const mapImage = (filename) => {
+        if (!filename || filename.toString().trim() === '') return null;
+        const raw = filename.toString().trim();
+        const fname = path.basename(raw.replace(/\\/g, '/'));
+        const imagePath = path.join(tmpDir, 'images', fname);
+        if (!fs.existsSync(imagePath)) {
+          throw new Error(`Missing image file for '${fname}' referenced on row ${rowNum}`);
+        }
+        // validate extension
+        const ext = path.extname(fname).toLowerCase();
+        if (!['.png', '.jpg', '.jpeg'].includes(ext)) {
+          throw new Error(`Invalid image format for ${fname} on row ${rowNum}`);
+        }
+        return imagePath;
+      };
+
+      const qImgPath = mapImage(row.question_image);
+      const aImg = mapImage(row.option_a_image);
+      const bImg = mapImage(row.option_b_image);
+      const cImg = mapImage(row.option_c_image);
+      const dImg = mapImage(row.option_d_image);
+
+      // image processing helper
+      const processImage = async (p) => {
+        if (!p) return null;
+        const img = sharp(p).rotate();
+        const metadata = await img.metadata();
+        // resize to fit within 1920x1080
+        img.resize({ width: 1920, height: 1080, fit: 'inside' });
+        // attempt compress to under 2MB with quality loop
+        let buffer = await img.toBuffer();
+        if (buffer.length <= 2 * 1024 * 1024) return `data:image/${metadata.format};base64,${buffer.toString('base64')}`;
+
+        if (metadata.format === 'jpeg' || metadata.format === 'jpg') {
+          let quality = 90;
+          while (buffer.length > 2 * 1024 * 1024 && quality >= 30) {
+            buffer = await sharp(p).rotate().resize({ width: 1920, height: 1080, fit: 'inside' }).jpeg({ quality }).toBuffer();
+            quality -= 10;
+          }
+        } else if (metadata.format === 'png') {
+          // try png compression
+          let quality = 9; // compression level
+          while (buffer.length > 2 * 1024 * 1024 && quality >= 1) {
+            buffer = await sharp(p).rotate().resize({ width: 1920, height: 1080, fit: 'inside' }).png({ compressionLevel: quality }).toBuffer();
+            quality -= 2;
+          }
+        }
+
+        if (buffer.length > 2 * 1024 * 1024) {
+          throw new Error(`Unable to compress ${path.basename(p)} under 2MB`);
+        }
+
+        return `data:image/${metadata.format};base64,${buffer.toString('base64')}`;
+      };
+
+      // process images sequentially for this row
+      const qImg = await processImage(qImgPath);
+      const aImgB = await processImage(aImg);
+      const bImgB = await processImage(bImg);
+      const cImgB = await processImage(cImg);
+      const dImgB = await processImage(dImg);
+
+      const correctVal = row.correct_answer || row.correct_answers || '';
+
+      processed.push({
+        position: i + 1,
+        question: row.question,
+        question_image: qImg,
+        option_a: row.option_a,
+        option_a_image: aImgB,
+        option_b: row.option_b,
+        option_b_image: bImgB,
+        option_c: row.option_c,
+        option_c_image: cImgB,
+        option_d: row.option_d,
+        option_d_image: dImgB,
+        correct_answer: correctVal
+      });
+    }
+
+    // if Postgres pool available, persist to DB
+    if (pool) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const insertText = `INSERT INTO questions
+          (position, question, question_image, option_a, option_a_image, option_b, option_b_image, option_c, option_c_image, option_d, option_d_image, correct_answer)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          RETURNING id`;
+        const inserted = [];
+        for (const q of processed) {
+          const vals = [q.position, q.question, q.question_image, q.option_a, q.option_a_image, q.option_b, q.option_b_image, q.option_c, q.option_c_image, q.option_d, q.option_d_image, q.correct_answer];
+          const r = await client.query(insertText, vals);
+          inserted.push(r.rows[0]);
+        }
+        await client.query('COMMIT');
+        res.json({ success: true, questions: processed, inserted: inserted });
+      } catch (dbErr) {
+        await client.query('ROLLBACK').catch(()=>{});
+        console.error('DB insert error:', dbErr);
+        res.status(500).json({ error: 'DB insert failed', details: dbErr.message });
+      } finally {
+        client.release();
+      }
+    } else {
+      res.json({ success: true, questions: processed });
+    }
+  } catch (err) {
+    console.error('ZIP Upload Error:', err);
+    res.status(400).json({ error: err.message });
+  } finally {
+    // cleanup
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+  }
 });
 
 // ==================== ASSESSMENT ENDPOINTS ====================
@@ -270,11 +466,12 @@ app.post('/api/assessment/create', (req, res) => {
       questions: questions.map((q, idx) => ({
         id: idx + 1,
         text: q.question,
+        question_image: q.question_image || null,
         options: [
-          { id: 'A', text: q.option_a },
-          { id: 'B', text: q.option_b },
-          { id: 'C', text: q.option_c },
-          { id: 'D', text: q.option_d }
+          { id: 'A', text: q.option_a, image: q.option_a_image || null },
+          { id: 'B', text: q.option_b, image: q.option_b_image || null },
+          { id: 'C', text: q.option_c, image: q.option_c_image || null },
+          { id: 'D', text: q.option_d, image: q.option_d_image || null }
         ],
         correctAnswers: q.correct_answers,
         multipleCorrect: q.multiple_correct
@@ -434,6 +631,7 @@ app.get('/api/assessment/:code/student/:studentId/question', (req, res) => {
       question: {
         id: question.id,
         text: question.text,
+        question_image: question.question_image || null,
         options: question.options,
         multipleCorrect: question.multipleCorrect
       },
@@ -519,29 +717,35 @@ app.post('/api/assessment/:code/student/:studentId/submit', (req, res) => {
       const confidencePercent = (totalBet / student.coins) * 100;
       const confidenceLevel = confidencePercent >= 40 ? 'high' : 'low';
 
-      // Calculate results
-      let coinsWon = 0;
-      let coinsLost = 0;
+      // Calculate results using deduct-then-pay model
+      let coinsReturned = 0; // total returned to student (payouts for correct bets)
+      let coinsLost = 0; // total stakes lost (wrong bets)
       const betResults = {};
       let hasCorrectBet = false;
 
+      // Deduct all stakes up-front
+      const previousCoins = student.coins;
+      student.coins = Math.max(0, student.coins - totalBet);
+
       Object.entries(bets || {}).forEach(([option, amount]) => {
+        amount = Number(amount || 0);
         if (amount > 0) {
           const isCorrect = question.correctAnswers.includes(option);
           if (isCorrect) {
             hasCorrectBet = true;
-            const winnings = Math.floor(amount * assessment.winMultiplier);
-            coinsWon += winnings;
-            betResults[option] = { amount, correct: true, winnings };
+            const payout = Math.floor(amount * assessment.winMultiplier); // includes stake + profit
+            coinsReturned += payout;
+            // add payout back to student's coins
+            student.coins += payout;
+            betResults[option] = { amount, correct: true, payout, profit: payout - amount };
           } else {
             coinsLost += amount;
-            betResults[option] = { amount, correct: false, winnings: -amount };
+            betResults[option] = { amount, correct: false, lost: amount };
           }
         }
       });
 
-      const netChange = coinsWon - coinsLost;
-      student.coins = Math.max(0, student.coins + netChange);
+      const netChange = student.coins - previousCoins;
 
       response = {
         ...response,
@@ -549,7 +753,7 @@ app.post('/api/assessment/:code/student/:studentId/submit', (req, res) => {
         noAnswer: false,
         bets,
         betResults,
-        coinsWon,
+        coinsReturned,
         coinsLost,
         netChange,
         coinsAfter: student.coins,
@@ -1006,15 +1210,56 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server (Render-friendly)
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(`🎲 Betting Assessment Server running on port ${PORT}`);
   console.log(`📋 Download template: /api/template`);
   console.log(`❤️  Health check: /api/health`);
+
+  if (pool) {
+    try {
+      await pool.query('SELECT 1');
+      console.log('✅ Postgres DATABASE_URL detected and connection validated. ZIP uploads will persist to DB.');
+
+      // Optionally run migrations automatically when AUTO_MIGRATE=1
+      if (process.env.AUTO_MIGRATE === '1') {
+        try {
+          console.log('AUTO_MIGRATE=1 detected — running migrations before accepting traffic.');
+          const { spawnSync } = require('child_process');
+          const path = require('path');
+          const localRunner = path.join(__dirname, 'scripts', 'run_migrations.js');
+          const r = spawnSync(process.execPath, [localRunner], { stdio: 'inherit' });
+          if (r.error || r.status !== 0) {
+            console.error('Auto-migrate failed, see output above.');
+          } else {
+            console.log('Auto-migrate finished.');
+          }
+        } catch (mErr) {
+          console.error('Auto-migrate error:', mErr.message);
+        }
+      }
+    } catch (e) {
+      console.error('❌ Postgres connection test failed:', e.message);
+      console.log('Please verify DATABASE_URL and run migrations before using ZIP upload persistence.');
+    }
+  } else {
+    console.log('⚠️  No DATABASE_URL configured — ZIP uploads will be processed but not persisted.');
+    console.log('To enable DB persistence, set DATABASE_URL and run the migrations in backend/migrations.');
+  }
+});
+
+// DB health endpoint
+app.get('/api/db/health', async (req, res) => {
+  if (!pool) return res.status(503).json({ ok: false, error: 'no_database_configured' });
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DB Health Check Failed:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 
-
-const path = require("path");
 
 // Serve the React build (production)
 app.use(express.static(path.join(__dirname, "..", "frontend", "build")));
