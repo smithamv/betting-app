@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import BettingQuestion from './components/BettingQuestion';
+import vijaiLogo from './assets/vijai_logo.svg';
 
 const API_URL = '/api';
 
@@ -56,17 +57,16 @@ function EntryScreen({ onJoinAssessment, onCreateAssessment, onTeacherReport }) 
   return (
     <div className="entry-container">
       <div className="entry-card">
-        <h1>🎲 Betting Assessment</h1>
+        <h1 className="brand-title">QUEST</h1>
         <p className="subtitle">Test your knowledge, bet on your confidence!</p>
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Enter Assessment Code</label>
             <input
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="e.g., MATH5A"
+              placeholder=" Enter assessment code e.g., MATH5A"
               maxLength={20}
               autoFocus
             />
@@ -1250,6 +1250,8 @@ function App() {
   const [studentId, setStudentId] = useState(null);
   const [studentName, setStudentName] = useState(null);
   const [sessionInfo, setSessionInfo] = useState(null);
+  const publicFooterPath = (process.env.PUBLIC_URL || '') + '/powered_by.png';
+  const [footerLogoSrc, setFooterLogoSrc] = useState(publicFooterPath);
 
   const handleHome = () => {
     setScreen('entry');
@@ -1341,6 +1343,26 @@ function App() {
           code={teacherCode}
           onHome={handleHome}
         />
+      )}
+
+      {/* Global logo badge bottom-left (no text) — hide on entry screen */}
+      {screen !== 'entry' && (
+        <div className="powered-by">
+          <img src={vijaiLogo} alt="VIJAI" />
+        </div>
+      )}
+
+      {/* Footer logo on the entry (first) screen */}
+      {screen === 'entry' && (
+        <footer className="app-footer">
+          <img
+            src={footerLogoSrc}
+            alt="Powered by VIJAI"
+            onError={() => {
+              if (footerLogoSrc !== vijaiLogo) setFooterLogoSrc(vijaiLogo);
+            }}
+          />
+        </footer>
       )}
     </div>
   );

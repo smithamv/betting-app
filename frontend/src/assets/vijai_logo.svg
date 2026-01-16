@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="80" viewBox="0 0 420 80" preserveAspectRatio="xMaxYMid meet" role="img" aria-label="Powered by VIJAI logo">
+  <defs>
+    <style>
+      .lime{fill:#cddc39}
+      .dark{fill:#333333}
+      .pb{font-family: 'Pacifico', 'Poppins', sans-serif; font-size:28px; fill:#cddc39}
+    </style>
+  </defs>
+
+  <!-- Powered by text (styled, will fallback if font missing) -->
+  <text class="pb" x="6" y="46">Powered by</text>
+
+  <!-- geometric VIJAI mark to the right -->
+  <!-- V: large inverted triangle -->
+  <polygon class="lime" points="200,75 250,75 225,10" />
+
+  <!-- I: tall rectangle -->
+  <rect class="lime" x="262" y="10" width="22" height="65" rx="2" />
+
+  <!-- J: rounded U-shape approximated with path -->
+  <path class="lime" d="M300 55 H340 V75 H312 A14 14 0 0 1 298 61 V25 H318 V10 H282 V25 H300 Z" />
+
+  <!-- A: dark triangle -->
+  <polygon class="dark" points="360,75 405,75 382,18" />
+
+  <!-- I: dark rectangle -->
+  <rect class="dark" x="417" y="10" width="6" height="65" rx="1" />
+</svg>

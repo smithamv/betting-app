@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800;900&display=swap');
 /* ==================== GLOBAL STYLES ==================== */
 .root-theme {}
 :root{
@@ -7,6 +8,16 @@
   --text-offwhite: #f6ecd7;
   --control-surface: rgba(0,0,0,0.36);
 }
+
+/* Responsive base rules */
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Make images/SVGs scale inside containers */
+img { max-width: 100%; height: auto; display: block; }
+
+/* Make large buttons adapt (full-width on small screens) */
+.btn-large { width: auto; }
+
 
 /* Full-page red background with subtle gradient */
 body{
@@ -24,6 +35,13 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
 .app {
   min-height: 100vh;
   padding: 20px;
+}
+
+/* Fluid card sizing */
+.entry-card, .upload-card, .setup-card, .join-card, .codes-card, .preview-card, .report-card, .question-card, .result-card {
+  max-width: 920px;
+  width: min(96%, 920px);
+  padding: 28px;
 }
 
 .loading {
@@ -176,6 +194,23 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   color: #c00;
   font-weight: 700;
   margin-bottom: 8px;
+}
+
+/* Brand title styling for Entry screen */
+.brand-title{
+  font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  font-weight: 900;
+  font-size: 2.6rem;
+  letter-spacing: 1px;
+  color: var(--gold) !important;
+  margin: 0 0 8px 0;
+}
+
+.entry-card .form-group label{
+  color: inherit; /* inherit from subtitle color */
+  color: rgba(246,236,215,0.95);
+  font-weight:400; /* remove bold for entry labels */
+  margin-bottom:8px;
 }
 
 .subtitle {
@@ -896,6 +931,47 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   color: rgba(246,236,215,0.85) !important;
 }
 
+/* Powered by badge */
+.powered-by{
+  position:fixed;right:12px;bottom:12px;display:flex;align-items:center;justify-content:flex-end;padding:0;margin:0;gap:0;background:transparent;box-shadow:none;color:var(--text-offwhite);font-weight:700;z-index:1200}
+.powered-by img{height:64px;display:block;width:auto;max-width:46vw}
+
+/* Footer logo used on entry screen */
+.app-footer{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  padding:12px 0;
+  background:transparent;
+  z-index:1200;
+  pointer-events:none;
+}
+.app-footer img{height:96px;display:block;width:auto;max-width:80vw;pointer-events:auto}
+
+/* Responsive footer sizing */
+@media (max-width: 1024px) {
+  .app-footer img { height:80px; max-width:70vw; }
+}
+
+@media (max-width: 768px) {
+  .app-footer img { height:64px; max-width:72vw; }
+}
+
+@media (max-width: 420px) {
+  .app-footer img { height:44px; max-width:86vw; }
+}
+
+/* Ensure footer doesn't cover interactive controls on very small screens */
+@media (max-height: 600px) {
+  .app-footer { bottom:6px; }
+  .app-footer img { height:36px; }
+}
+
+
 
 .report-header h2 {
   color: #333;
@@ -1143,4 +1219,23 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   .code-display .code.small {
     font-size: 0.9rem;
   }
+}
+
+/* Stack two-column game layout on narrow screens */
+@media (max-width: 900px) {
+  .game-layout { flex-direction: column; gap: 16px; }
+  .question-column, .result-column { flex: none; width: 100%; }
+  .result-column { margin-top: 8px; }
+  .game-header { flex-direction: column; align-items: stretch; gap: 10px; }
+}
+
+/* Make primary CTAs full-width on small viewports */
+@media (max-width: 768px) {
+  .btn-large { width: 100%; }
+}
+
+/* Reduce excessive paddings on very small screens */
+@media (max-width: 420px) {
+  .entry-card, .upload-card, .setup-card, .join-card, .codes-card, .report-card { padding: 16px; }
+  .brand-title { font-size: 1.8rem; }
 }
