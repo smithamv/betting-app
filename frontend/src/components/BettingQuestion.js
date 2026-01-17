@@ -5,46 +5,103 @@ export default function BettingQuestion({
   question,
   bets = {},
   remainingCoins = 0,
+  currentCoins = 0,
   winMultiplier = 2,
   submitting = false,
   inputsDisabled = false,
-  onBetChange
+  onBetChange,
+  onBetsUpdate
 }) {
   // Helper to compute payout and net
   const payoutFor = (amt) => Math.floor((Number(amt) || 0) * (winMultiplier || 2));
 
   const handleQuick = (optId, percent) => {
-    const current = Number(bets[optId] || 0);
-    const maxBet = Math.max(0, remainingCoins + current);
-    const val = Math.floor((percent / 100) * maxBet);
-    const clamped = Math.max(0, Math.min(val, maxBet));
-    if (onBetChange) onBetChange(optId, clamped);
+    const cc = Math.max(0, Number(currentCoins || 0));
+    const current = Math.max(0, Number(bets[optId] || 0));
+    // target is percent of total current coins (user requested behavior)
+    // Use Math.round so percent mapping is symmetric and minimizes bias
+    let target = Math.round((percent / 100) * cc);
+
+    // build new bets object with target set for this option
+    const newBets = { ...bets };
+    newBets[optId] = target;
+
+    // ensure numeric integers and non-negative
+    Object.keys(newBets).forEach(k => { newBets[k] = Math.max(0, Math.floor(Number(newBets[k] || 0))); });
+
+    const total = Object.values(newBets).reduce((s, v) => s + v, 0);
+    if (total > cc) {
+      // need to reduce other options proportionally (exclude optId)
+      const others = Object.keys(newBets).filter(k => k !== optId);
+      const sumOthers = others.reduce((s, k) => s + newBets[k], 0);
+      let excess = total - cc;
+
+      if (sumOthers > 0) {
+        // proportional reduction
+        others.forEach(k => {
+          const reduction = Math.floor((newBets[k] / sumOthers) * excess);
+          newBets[k] = Math.max(0, newBets[k] - reduction);
+        });
+
+        // correct any remaining excess by decrementing largest others
+        let newTotal = Object.values(newBets).reduce((s, v) => s + v, 0);
+        while (newTotal > cc) {
+          let maxKey = others.reduce((a, b) => (newBets[a] >= newBets[b] ? a : b));
+          if (!maxKey || newBets[maxKey] <= 0) break;
+          newBets[maxKey] = Math.max(0, newBets[maxKey] - 1);
+          newTotal--;
+        }
+      } else {
+        // no other bets to reduce; clamp the option to cc
+        newBets[optId] = Math.min(newBets[optId], cc);
+      }
+    }
+
+    if (onBetsUpdate) {
+      onBetsUpdate(newBets);
+    } else if (onBetChange) {
+      Object.entries(newBets).forEach(([k, v]) => onBetChange(k, v));
+    }
   };
 
   const handleAll = (optId) => {
-    const current = Number(bets[optId] || 0);
-    const maxBet = Math.max(0, remainingCoins + current);
-    if (onBetChange) onBetChange(optId, maxBet);
+    const cc = Math.max(0, Number(currentCoins || 0));
+    const newBets = { ...bets, [optId]: cc };
+    // other bets need to be reduced to fit cc
+    Object.keys(newBets).forEach(k => { newBets[k] = Math.max(0, Math.floor(Number(newBets[k] || 0))); });
+    const total = Object.values(newBets).reduce((s, v) => s + v, 0);
+    if (total > cc) {
+      const others = Object.keys(newBets).filter(k => k !== optId);
+      others.forEach(k => { newBets[k] = 0; });
+      // ensure option is not more than cc
+      newBets[optId] = Math.min(newBets[optId], cc);
+    }
+
+    if (onBetsUpdate) onBetsUpdate(newBets);
+    else if (onBetChange) Object.entries(newBets).forEach(([k, v]) => onBetChange(k, v));
   };
 
   const handleInput = (optId, raw) => {
-    const current = Number(bets[optId] || 0);
-    const maxBet = Math.max(0, remainingCoins + current);
+    const current = Math.max(0, Number(bets[optId] || 0));
+    const maxBet = Math.max(0, Number(currentCoins || 0));
     // Allow empty string while editing so user can delete the default '0'
     if (raw === '' || raw === null) {
-      if (onBetChange) onBetChange(optId, '');
+      if (onBetsUpdate) onBetsUpdate({ ...bets, [optId]: '' });
+      else if (onBetChange) onBetChange(optId, '');
       return;
     }
     let val = Math.floor(Number(raw) || 0);
     if (val < 0) val = 0;
     if (val > maxBet) val = maxBet;
-    if (onBetChange) onBetChange(optId, val);
+    if (onBetsUpdate) onBetsUpdate({ ...bets, [optId]: val });
+    else if (onBetChange) onBetChange(optId, val);
   };
 
   return (
     <div className="betting-question bq-vertical-list">
       {question.options.map((opt) => {
-        const amt = Number(bets[opt.id] || 0);
+        const rawVal = bets[opt.id];
+        const amt = rawVal === '' ? '' : Number(rawVal || 0);
         const payout = payoutFor(amt);
         const net = payout - amt;
         return (

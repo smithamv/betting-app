@@ -508,7 +508,7 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
             <input
               type="number"
               value={initialCoins}
-              onChange={(e) => setInitialCoins(parseInt(e.target.value))}
+              onChange={(e) => setInitialCoins(parseInt(e.target.value, 10))}
               min="100"
               max="10000"
               step="100"
@@ -533,7 +533,7 @@ function AssessmentSetup({ questions, onAssessmentCreated, onBack }) {
             <input
               type="number"
               value={totalDurationMinutes}
-              onChange={(e) => setTotalDurationMinutes(parseInt(e.target.value) || 0)}
+              onChange={(e) => setTotalDurationMinutes(parseInt(e.target.value, 10) || 0)}
               min="1"
               max="1440"
               step="1"
@@ -716,7 +716,11 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
     console.debug('Loaded question payload:', data);
 
       if (data.complete) {
-        onComplete();
+        // Show result pane with an error message instead of navigating away
+        const msg = data.reason === 'no_coins' ? 'You have no coins left.' : (data.reason === 'time_up' ? 'Time is up.' : 'Assessment complete');
+        setResult({ isLastQuestion: true, errorMessage: msg, newTotal: data.currentCoins || 0, correctAnswers: [] });
+        setQuestionData(null);
+        setCurrentCoins(data.currentCoins || 0);
         return;
       }
 
@@ -801,13 +805,13 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to submit');
 
+      // Set result and current coins
       setResult(data.results);
       setCurrentCoins(data.results.newTotal);
 
-      // If student has no coins left, show message and go to results
+      // If student has no coins left, mark error on results pane (do not auto-navigate)
       if (typeof data.results.newTotal === 'number' && data.results.newTotal <= 0) {
-        alert('You have no coins left. Showing results.');
-        onComplete();
+        setResult(prev => ({ ...(data.results || prev), errorMessage: 'You have no coins left.', isLastQuestion: true }));
         return;
       }
 
@@ -862,10 +866,12 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
                   question={questionData.question}
                   bets={bets}
                   remainingCoins={remainingCoins}
+                  currentCoins={currentCoins}
                   winMultiplier={(assessmentData && assessmentData.winMultiplier) || 2}
                   submitting={submitting}
                   inputsDisabled={inputsDisabled}
                   onBetChange={handleBetChange}
+                  onBetsUpdate={(nb) => setBets(nb)}
                 />
               </div>
               <div className="action-buttons" style={{ marginTop: 12 }}>
@@ -884,6 +890,9 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
         <div className="result-column">
           {result && (
             <div className="result-card">
+              {result.errorMessage && (
+                <div className="error-box">❌ {result.errorMessage}</div>
+              )}
               {result.skipped ? (
                 <div>
                   <h2 className="skipped">⏭️ Question Skipped</h2>
@@ -1345,10 +1354,16 @@ function App() {
         />
       )}
 
-      {/* Global logo badge bottom-left (no text) — hide on entry screen */}
+      {/* Global logo badge — use public footer image so both footers match */}
       {screen !== 'entry' && (
         <div className="powered-by">
-          <img src={vijaiLogo} alt="VIJAI" />
+          <img
+            src={footerLogoSrc}
+            alt="Powered by VIJAI"
+            onError={() => {
+              if (footerLogoSrc !== vijaiLogo) setFooterLogoSrc(vijaiLogo);
+            }}
+          />
         </div>
       )}
 

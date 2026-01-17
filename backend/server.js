@@ -518,14 +518,15 @@ app.post('/api/assessment/join', (req, res) => {
       return res.status(400).json({ error: 'Code and name are required' });
     }
 
-    const assessment = assessments[code.toUpperCase()];
+    const upper = String(code || '').toUpperCase();
+    const assessment = assessments[upper];
 
     if (!assessment) {
       return res.status(404).json({ error: 'Assessment not found. Check your code.' });
     }
 
-    // Check if it's a teacher code
-    if (code.toUpperCase().includes('-TCH-')) {
+    // Check if it's the teacher code (exact match, case-insensitive)
+    if (assessment.teacherCode && upper === String(assessment.teacherCode).toUpperCase()) {
       return res.status(400).json({ error: 'This is a teacher code. Students should use the short code.' });
     }
 
@@ -590,7 +591,8 @@ app.get('/api/assessment/check/:code', (req, res) => {
     return res.status(404).json({ error: 'Assessment not found' });
   }
 
-  const isTeacher = code.includes('-TCH-');
+  // Consider it a teacher code if it exactly matches the stored teacherCode (case-insensitive)
+  const isTeacher = !!(assessment.teacherCode && code === String(assessment.teacherCode).toUpperCase());
 
   res.json({
     success: true,
@@ -614,9 +616,14 @@ app.get('/api/assessment/:code/student/:studentId/question', (req, res) => {
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
-
     if (student.remainingTime <= 0) {
       return res.json({ complete: true, reason: 'time_up' });
+    }
+
+    // If student has no coins left, mark complete
+    if (typeof student.coins === 'number' && student.coins <= 0) {
+      student.currentQuestion = assessment.questions.length;
+      return res.json({ complete: true, reason: 'no_coins', currentCoins: student.coins });
     }
 
     if (student.currentQuestion >= assessment.questions.length) {
@@ -733,6 +740,7 @@ app.post('/api/assessment/:code/student/:studentId/submit', (req, res) => {
           const isCorrect = question.correctAnswers.includes(option);
           if (isCorrect) {
             hasCorrectBet = true;
+            // Payout is floored to integer coins to avoid fractional coin credits
             const payout = Math.floor(amount * assessment.winMultiplier); // includes stake + profit
             coinsReturned += payout;
             // add payout back to student's coins
@@ -767,7 +775,12 @@ app.post('/api/assessment/:code/student/:studentId/submit', (req, res) => {
     student.responses.push(response);
     student.currentQuestion++;
 
-    const isLastQuestion = student.currentQuestion >= assessment.questions.length || student.remainingTime <= 0;
+    // If coins are exhausted, treat assessment as complete
+    let isLastQuestion = student.currentQuestion >= assessment.questions.length || student.remainingTime <= 0;
+    if (typeof student.coins === 'number' && student.coins <= 0) {
+      isLastQuestion = true;
+      student.currentQuestion = assessment.questions.length;
+    }
 
     res.json({
       success: true,
@@ -890,8 +903,8 @@ app.get('/api/assessment/:code/teacher/report', (req, res) => {
       return res.status(404).json({ error: 'Assessment not found' });
     }
 
-    // Verify it's a teacher code
-    if (!code.includes('-TCH-')) {
+    // Verify it's the teacher code (exact match)
+    if (!(assessment.teacherCode && code === String(assessment.teacherCode).toUpperCase())) {
       return res.status(403).json({ error: 'Teacher code required for this report' });
     }
 
@@ -1131,7 +1144,7 @@ app.get('/api/assessment/:code/teacher/pdf', (req, res) => {
       return res.status(404).json({ error: 'Assessment not found' });
     }
 
-    if (!code.includes('-TCH-')) {
+    if (!(assessment.teacherCode && code === String(assessment.teacherCode).toUpperCase())) {
       return res.status(403).json({ error: 'Teacher code required' });
     }
 

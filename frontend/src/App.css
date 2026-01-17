@@ -931,44 +931,44 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   color: rgba(246,236,215,0.85) !important;
 }
 
-/* Powered by badge */
-.powered-by{
-  position:fixed;right:12px;bottom:12px;display:flex;align-items:center;justify-content:flex-end;padding:0;margin:0;gap:0;background:transparent;box-shadow:none;color:var(--text-offwhite);font-weight:700;z-index:1200}
-.powered-by img{height:64px;display:block;width:auto;max-width:46vw}
-
-/* Footer logo used on entry screen */
-.app-footer{
-  position:fixed;
-  left:0;
-  right:0;
-  bottom:0;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  padding:12px 0;
-  background:transparent;
-  z-index:1200;
-  pointer-events:none;
+/* Footer / Powered by badge (centered on all screens) */
+.powered-by, .app-footer {
+  /* Make footer part of document flow so it scrolls with content */
+  position: static;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 0;
+  background: transparent;
+  z-index: 1200;
+  pointer-events: none;
 }
-.app-footer img{height:96px;display:block;width:auto;max-width:80vw;pointer-events:auto}
+
+.powered-by img, .app-footer img {
+  height: 64px;
+  display: block;
+  width: auto;
+  max-width: 80vw;
+  pointer-events: auto;
+}
 
 /* Responsive footer sizing */
 @media (max-width: 1024px) {
-  .app-footer img { height:80px; max-width:70vw; }
+  .powered-by img, .app-footer img { height:80px; max-width:70vw; }
 }
 
 @media (max-width: 768px) {
-  .app-footer img { height:64px; max-width:72vw; }
+  .powered-by img, .app-footer img { height:64px; max-width:72vw; }
 }
 
 @media (max-width: 420px) {
-  .app-footer img { height:44px; max-width:86vw; }
+  .powered-by img, .app-footer img { height:44px; max-width:86vw; }
 }
 
 /* Ensure footer doesn't cover interactive controls on very small screens */
 @media (max-height: 600px) {
-  .app-footer { bottom:6px; }
-  .app-footer img { height:36px; }
+  .powered-by, .app-footer { bottom:6px; }
+  .powered-by img, .app-footer img { height:36px; }
 }
 
 
