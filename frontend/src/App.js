@@ -68,7 +68,6 @@ function EntryScreen({ onJoinAssessment, onCreateAssessment, onTeacherReport }) 
               onChange={(e) => setCode(e.target.value.toUpperCase())}
               placeholder=" Enter assessment code e.g., MATH5A"
               maxLength={20}
-              autoFocus
             />
           </div>
 
@@ -676,7 +675,6 @@ function StudentJoin({ code, onJoined }) {
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g., John Smith"
               maxLength={50}
-              autoFocus
               required
             />
           </div>
@@ -1275,84 +1273,86 @@ function App() {
 
   return (
     <div className="app">
-      {screen === 'entry' && (
-        <EntryScreen
-          onJoinAssessment={(code) => {
-            setStudentCode(code);
-            setScreen('studentJoin');
-          }}
-          onCreateAssessment={() => setScreen('upload')}
-          onTeacherReport={(code) => {
-            setTeacherCode(code);
-            setScreen('teacherReport');
-          }}
-        />
-      )}
+      <div className="content">
+        {screen === 'entry' && (
+          <EntryScreen
+            onJoinAssessment={(code) => {
+              setStudentCode(code);
+              setScreen('studentJoin');
+            }}
+            onCreateAssessment={() => setScreen('upload')}
+            onTeacherReport={(code) => {
+              setTeacherCode(code);
+              setScreen('teacherReport');
+            }}
+          />
+        )}
 
-      {screen === 'upload' && (
-        <QuestionUpload
-          onQuestionsValidated={(q) => {
-            setQuestions(q);
-            setScreen('setup');
-          }}
-        />
-      )}
+        {screen === 'upload' && (
+          <QuestionUpload
+            onQuestionsValidated={(q) => {
+              setQuestions(q);
+              setScreen('setup');
+            }}
+          />
+        )}
 
-      {screen === 'setup' && (
-        <AssessmentSetup
-          questions={questions}
-          onAssessmentCreated={(data) => {
-            setAssessmentData(data);
-            setScreen('codes');
-          }}
-          onBack={() => setScreen('upload')}
-        />
-      )}
+        {screen === 'setup' && (
+          <AssessmentSetup
+            questions={questions}
+            onAssessmentCreated={(data) => {
+              setAssessmentData(data);
+              setScreen('codes');
+            }}
+            onBack={() => setScreen('upload')}
+          />
+        )}
 
-      {screen === 'codes' && (
-        <CodesDisplay
-          assessmentData={assessmentData}
-          onDone={handleHome}
-        />
-      )}
+        {screen === 'codes' && (
+          <CodesDisplay
+            assessmentData={assessmentData}
+            onDone={handleHome}
+          />
+        )}
 
-      {screen === 'studentJoin' && (
-        <StudentJoin
-          code={studentCode}
-          onJoined={(data) => {
-            setStudentId(data.studentId);
-            setStudentName(data.studentName);
-            setSessionInfo(data);
-            setScreen('game');
-          }}
-        />
-      )}
+        {screen === 'studentJoin' && (
+          <StudentJoin
+            code={studentCode}
+            onJoined={(data) => {
+              setStudentId(data.studentId);
+              setStudentName(data.studentName);
+              setSessionInfo(data);
+              setScreen('game');
+            }}
+          />
+        )}
 
-      {screen === 'game' && (
-        <GameScreen
-          code={studentCode}
-          studentId={studentId}
-          studentName={studentName}
-          sessionInfo={sessionInfo}
-          assessmentData={assessmentData}
-          onComplete={() => setScreen('studentReport')}
-        />
-      )}
+        {screen === 'game' && (
+          <GameScreen
+            code={studentCode}
+            studentId={studentId}
+            studentName={studentName}
+            sessionInfo={sessionInfo}
+            assessmentData={assessmentData}
+            onComplete={() => setScreen('studentReport')}
+          />
+        )}
 
-      {screen === 'studentReport' && (
-        <StudentReport
-          code={studentCode}
-          studentId={studentId}
-          onHome={handleHome}
-        />
-      )}
+        {screen === 'studentReport' && (
+          <StudentReport
+            code={studentCode}
+            studentId={studentId}
+            onHome={handleHome}
+          />
+        )}
 
-      {screen === 'teacherReport' && (
-        <TeacherReport
-          code={teacherCode}
-          onHome={handleHome}
-        />
-      )}
+        {screen === 'teacherReport' && (
+          <TeacherReport
+            code={teacherCode}
+            onHome={handleHome}
+          />
+        )}
+      </div>
 
       {/* Global logo badge — use public footer image so both footers match */}
       {screen !== 'entry' && (

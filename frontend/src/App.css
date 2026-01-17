@@ -33,8 +33,15 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
 }
 
 .app {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
   padding: 20px;
+}
+
+.content {
+  flex: 1 1 auto;
+  overflow: auto;
 }
 
 /* Fluid card sizing */
@@ -176,7 +183,8 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  /* avoid forcing full viewport height (leaves room for footer) */
+  min-height: calc(100vh - 140px);
 }
 
 .entry-card {
@@ -322,6 +330,7 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
 .preview-table-wrapper {
   max-height: 300px;
   overflow-y: auto;
+  overflow-x: auto; /* allow horizontal scroll inside wrapper instead of the whole page */
   margin-bottom: 20px;
 }
 
@@ -350,6 +359,13 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   white-space: nowrap;
 }
 
+/* In previews allow question text to wrap to avoid forcing page-wide horizontal scroll */
+.preview-table .question-cell {
+  white-space: normal;
+  word-break: break-word;
+  max-width: 360px;
+}
+
 .correct-cell {
   font-weight: 600;
   color: #28a745;
@@ -360,7 +376,8 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  /* avoid forcing full viewport height (leave room for footer badge) */
+  min-height: calc(100vh - 140px);
 }
 
 .setup-card, .join-card {
@@ -782,6 +799,61 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   margin-bottom: 8px;
 }
 
+/* ==================== RESPONSIVE BREAKPOINTS ==================== */
+@media (max-width: 1024px) {
+  .app { padding: 16px; }
+  .entry-card, .upload-card, .setup-card, .join-card, .codes-card, .question-card, .result-card { padding: 24px; }
+  .game-container { max-width: 960px; }
+  .preview-table .question-cell { max-width: 300px; }
+}
+
+@media (max-width: 768px) {
+  .app { padding: 12px; }
+  .entry-card, .upload-card, .setup-card, .join-card, .codes-card { padding: 20px; }
+  .entry-card { max-width: 420px; }
+  .upload-card, .setup-card { max-width: 680px; }
+  .brand-title { font-size: 2.2rem; }
+  .subtitle { font-size: 0.95rem; }
+  .btn-large { font-size: 1rem; padding: 12px 20px; }
+
+  /* Collapse game layout into single column */
+  .game-layout { flex-direction: column; }
+  .question-column, .result-column { width: 100%; }
+  .result-column { margin-top: 16px; }
+  .question-card, .result-card { padding: 20px; }
+
+  .bet-controls input { width: 64px; }
+  .bet-controls { gap: 8px; }
+  .option-letter { width: 30px; height: 30px; }
+
+  /* footer / badge sizing */
+  .app-footer img, .powered-by img { transform: none; height: 48px; }
+  .app-footer { padding: 8px 0; }
+}
+
+@media (max-width: 420px) {
+  .app { padding: 8px; }
+  .entry-card, .join-card, .codes-card { padding: 16px; }
+  .brand-title { font-size: 1.8rem; }
+  .entry-card h1 { font-size: 1.6rem; }
+  .subtitle { font-size: 0.9rem; }
+  .btn-large { padding: 10px 14px; font-size: 0.95rem; }
+
+  .question-text { font-size: 1.1rem; }
+  .timer { font-size: 1.2rem; }
+
+  .bet-controls input { width: 56px; }
+  .option-letter { width: 28px; height: 28px; }
+
+  /* Ensure preview wrapper doesn't force wide table */
+  .preview-table { width: 100%; table-layout: fixed; }
+  .preview-table th, .preview-table td { word-break: break-word; }
+
+  /* Make powered badge smaller and non-overflowing */
+  .app-footer img, .powered-by img { height: 40px; max-width: 130px; }
+  .powered-by { position: fixed; right: 12px; bottom: 12px; z-index: 60; }
+}
+
 .bet-result.correct {
   background: #d4edda;
   color: #155724;
@@ -944,7 +1016,7 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   pointer-events: none;
 }
 
-.powered-by img, .app-footer img {
+.powered-by img {
   height: 64px;
   display: block;
   width: auto;
@@ -952,23 +1024,46 @@ h1,h2,h3,h4,.bq-letter,.bq-value.win{
   pointer-events: auto;
 }
 
+/* Entry screen footer should be larger (150% of default) */
+.app-footer {
+  overflow: visible; /* allow the scaled image to be visible outside the footer box */
+  z-index: 1300;
+}
+
+.app-footer img {
+  /* Keep the natural image layout height but scale visually via transform
+     so the footer container size is not enlarged. Use a larger scale so the
+     badge is clearly visible relative to the entry card. */
+  height: 64px;
+  display: block;
+  width: auto;
+  max-width: 80vw;
+  transform: scale(2.2);
+  transform-origin: center bottom;
+  pointer-events: auto;
+}
+
 /* Responsive footer sizing */
 @media (max-width: 1024px) {
-  .powered-by img, .app-footer img { height:80px; max-width:70vw; }
+  .powered-by img { height:80px; max-width:70vw; }
+  .app-footer img { height:80px; max-width:70vw; transform: scale(2.0); }
 }
 
 @media (max-width: 768px) {
-  .powered-by img, .app-footer img { height:64px; max-width:72vw; }
+  .powered-by img { height:64px; max-width:72vw; }
+  .app-footer img { height:64px; max-width:72vw; transform: scale(1.8); }
 }
 
 @media (max-width: 420px) {
-  .powered-by img, .app-footer img { height:44px; max-width:86vw; }
+  .powered-by img { height:44px; max-width:86vw; }
+  .app-footer img { height:44px; max-width:86vw; transform: scale(1.4); }
 }
 
 /* Ensure footer doesn't cover interactive controls on very small screens */
 @media (max-height: 600px) {
   .powered-by, .app-footer { bottom:6px; }
-  .powered-by img, .app-footer img { height:36px; }
+  .powered-by img { height:36px; }
+  .app-footer img { height:36px; transform: scale(1.6); }
 }
 
 
