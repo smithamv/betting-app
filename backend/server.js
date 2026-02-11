@@ -49,6 +49,32 @@ app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 // Optional: Postgres pool (configuration via DATABASE_URL)
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
 
+// ==================== RATE LIMITING ====================
+// Simple in-memory rate limiter for sensitive endpoints (no extra dependency)
+const rateLimitStore = {};
+function rateLimit(windowMs, maxRequests) {
+  return (req, res, next) => {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const now = Date.now();
+    if (!rateLimitStore[ip] || rateLimitStore[ip].resetAt < now) {
+      rateLimitStore[ip] = { count: 1, resetAt: now + windowMs };
+      return next();
+    }
+    rateLimitStore[ip].count++;
+    if (rateLimitStore[ip].count > maxRequests) {
+      return res.status(429).json({ error: 'Too many requests. Please try again later.' });
+    }
+    next();
+  };
+}
+// Clean up expired entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const ip of Object.keys(rateLimitStore)) {
+    if (rateLimitStore[ip].resetAt < now) delete rateLimitStore[ip];
+  }
+}, 5 * 60 * 1000);
+
 // ==================== IN-MEMORY DATABASE ====================
 let assessments = {}; // Stores all assessment sessions
 
@@ -257,8 +283,15 @@ app.post('/api/questions/upload_zip', upload.single('file'), async (req, res) =>
     const zipPath = path.join(tmpDir, 'upload.zip');
     fs.writeFileSync(zipPath, req.file.buffer);
 
-    // extract
+    // extract (with path traversal protection)
     const zip = new AdmZip(zipPath);
+    const entries = zip.getEntries();
+    for (const entry of entries) {
+      const resolvedPath = path.resolve(tmpDir, entry.entryName);
+      if (!resolvedPath.startsWith(tmpDir + path.sep) && resolvedPath !== tmpDir) {
+        throw new Error('Malicious ZIP entry detected: ' + entry.entryName);
+      }
+    }
     zip.extractAllTo(tmpDir, true);
 
     // locate questions.xlsx
@@ -509,8 +542,8 @@ app.post('/api/assessment/create', (req, res) => {
   }
 });
 
-// Join assessment (student)
-app.post('/api/assessment/join', (req, res) => {
+// Join assessment (student) — rate limited
+app.post('/api/assessment/join', rateLimit(60 * 1000, 20), (req, res) => {
   try {
     const { code, studentName } = req.body;
 
@@ -582,8 +615,8 @@ app.post('/api/assessment/join', (req, res) => {
   }
 });
 
-// Check code type (student or teacher)
-app.get('/api/assessment/check/:code', (req, res) => {
+// Check code type (student or teacher) — rate limited to prevent brute-force
+app.get('/api/assessment/check/:code', rateLimit(60 * 1000, 15), (req, res) => {
   const code = req.params.code.toUpperCase();
   const assessment = assessments[code];
 
@@ -1075,9 +1108,10 @@ app.get('/api/assessment/:code/student/:studentId/pdf', (req, res) => {
     // Create PDF
     const doc = new PDFDocument({ margin: 50 });
     
+    const safeName = student.name.replace(/[^a-zA-Z0-9_-]/g, '_');
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${student.name}_report.pdf"`);
-    
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}_report.pdf"`);
+
     doc.pipe(res);
 
     // Title
@@ -1154,9 +1188,10 @@ app.get('/api/assessment/:code/teacher/pdf', (req, res) => {
     // Create PDF
     const doc = new PDFDocument({ margin: 50 });
     
+    const safeAssessmentName = assessment.name.replace(/[^a-zA-Z0-9_-]/g, '_');
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${assessment.name}_teacher_report.pdf"`);
-    
+    res.setHeader('Content-Disposition', `attachment; filename="${safeAssessmentName}_teacher_report.pdf"`);
+
     doc.pipe(res);
 
     // Title

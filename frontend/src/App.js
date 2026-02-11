@@ -235,7 +235,7 @@ function QuestionUpload({ onQuestionsValidated }) {
           option_d: q.option_d,
           option_d_image: q.option_d_image || null,
           correct_answers: Array.isArray(q.correct_answer) ? q.correct_answer : (q.correct_answer ? q.correct_answer.toString().split(',').map(s=>s.trim()) : []),
-          multiple_correct: false
+          multiple_correct: (q.multiple_correct || '').toString().toLowerCase().trim() === 'yes'
         }));
 
         setPreview({
@@ -837,7 +837,7 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
       <div className="game-header">
         <div className="player-info"><span className="name">{studentName}</span></div>
         <div className="coins-display">💰 {currentCoins}</div>
-        <div className="progress">Q{questionData.questionNumber}/{questionData.totalQuestions}</div>
+        {questionData && <div className="progress">Q{questionData.questionNumber}/{questionData.totalQuestions}</div>}
       </div>
 
       <div className="game-layout">
@@ -865,7 +865,7 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
                   bets={bets}
                   remainingCoins={remainingCoins}
                   currentCoins={currentCoins}
-                  winMultiplier={(assessmentData && assessmentData.winMultiplier) || 2}
+                  winMultiplier={(assessmentData?.winMultiplier) || (sessionInfo?.winMultiplier) || 2}
                   submitting={submitting}
                   inputsDisabled={inputsDisabled}
                   onBetChange={handleBetChange}
@@ -908,19 +908,21 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
                     {Object.entries(result.betResults || {}).map(([option, data]) => (
                       <div key={option} className={`bet-result ${data.correct ? 'correct' : 'wrong'}`}>
                         <span>Option {option}: {data.amount} coins</span>
-                        <span>{data.correct ? `+${data.winnings}` : data.winnings}</span>
+                        <span>{data.correct ? `+${data.profit}` : `-${data.lost}`}</span>
                       </div>
                     ))}
                   </div>
                   <div className="result-summary">
-                    <div className="won">Won: +{result.coinsWon}</div>
+                    <div className="won">Won: +{result.coinsReturned}</div>
                     <div className="lost">Lost: -{result.coinsLost}</div>
                     <div className={`net ${result.netChange >= 0 ? 'positive' : 'negative'}`}>Net: {result.netChange >= 0 ? '+' : ''}{result.netChange}</div>
                   </div>
                 </div>
               )}
 
-              <div className="correct-answers">Correct Answer(s): {result.correctAnswers.join(', ')}</div>
+              {result.correctAnswers && result.correctAnswers.length > 0 && (
+                <div className="correct-answers">Correct Answer(s): {result.correctAnswers.join(', ')}</div>
+              )}
               <div className="new-total">💰 New Total: {result.newTotal} coins</div>
               <button className="btn btn-primary btn-large" onClick={result.isLastQuestion ? onComplete : () => setResult(null)}>
                 {result.isLastQuestion ? '🏆 View Results' : '➡️ Hide Result'}
