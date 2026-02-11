@@ -18,9 +18,11 @@ const PORT = process.env.PORT || 3001;
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const MAX_ASSESSMENTS = parseInt(process.env.MAX_ASSESSMENTS, 10) || 200;
+const ASSESSMENT_TTL_MS = parseInt(process.env.ASSESSMENT_TTL_HOURS, 10) * 3600000 || 24 * 3600000; // default 24h
+const upload = multer({
   storage: storage,
-  limits: { fileSize: 100 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max upload
   fileFilter: (req, file, cb) => {
     const name = String(file.originalname || '').toLowerCase();
     const mime = String(file.mimetype || '').toLowerCase();
@@ -40,11 +42,20 @@ const upload = multer({
   }
 });
 
-// Middleware
-app.use(cors());
+// Middleware — restrict CORS to allowed origins (set ALLOWED_ORIGINS env var, comma-separated)
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim())
+  : null; // null = allow all in development
+app.use(cors(allowedOrigins ? {
+  origin: (origin, cb) => {
+    // Allow requests with no origin (e.g. server-to-server, mobile apps)
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error('Not allowed by CORS'));
+  }
+} : undefined));
 // Increase body size limits to support large payloads (questions with base64 images)
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
 // Optional: Postgres pool (configuration via DATABASE_URL)
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
@@ -77,6 +88,21 @@ setInterval(() => {
 
 // ==================== IN-MEMORY DATABASE ====================
 let assessments = {}; // Stores all assessment sessions
+
+// Periodically clean up expired assessments (TTL-based)
+setInterval(() => {
+  const now = Date.now();
+  const seen = new Set(); // avoid double-counting (stored under both codes)
+  for (const key of Object.keys(assessments)) {
+    const a = assessments[key];
+    if (seen.has(a.id)) continue;
+    seen.add(a.id);
+    if (now - new Date(a.createdAt).getTime() > ASSESSMENT_TTL_MS) {
+      delete assessments[a.studentCode];
+      delete assessments[a.teacherCode];
+    }
+  }
+}, 10 * 60 * 1000); // every 10 minutes
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -456,6 +482,32 @@ app.post('/api/assessment/create', (req, res) => {
 
     if (!questions || questions.length === 0) {
       return res.status(400).json({ error: 'No questions provided' });
+    }
+
+    // Server-side input validation
+    if (questions.length > 200) {
+      return res.status(400).json({ error: 'Too many questions (max 200)' });
+    }
+    if (name && name.length > 200) {
+      return res.status(400).json({ error: 'Assessment name too long (max 200 characters)' });
+    }
+    const coinsVal = Number(initialCoins);
+    if (initialCoins !== undefined && (isNaN(coinsVal) || coinsVal < 100 || coinsVal > 100000)) {
+      return res.status(400).json({ error: 'initialCoins must be between 100 and 100,000' });
+    }
+    const multVal = Number(winMultiplier);
+    if (winMultiplier !== undefined && (isNaN(multVal) || multVal < 1 || multVal > 10)) {
+      return res.status(400).json({ error: 'winMultiplier must be between 1 and 10' });
+    }
+    const durVal = Number(totalDuration);
+    if (totalDuration !== undefined && (isNaN(durVal) || durVal < 60 || durVal > 86400)) {
+      return res.status(400).json({ error: 'totalDuration must be between 60 and 86400 seconds' });
+    }
+
+    // Cap total assessments to prevent memory exhaustion
+    const uniqueAssessments = new Set(Object.values(assessments).map(a => a.id)).size;
+    if (uniqueAssessments >= MAX_ASSESSMENTS) {
+      return res.status(503).json({ error: 'Server at capacity. Please try again later.' });
     }
 
     function sanitize(code) {
@@ -1124,9 +1176,11 @@ app.get('/api/assessment/:code/student/:studentId/pdf', (req, res) => {
     doc.fontSize(12).text(persona.message, { align: 'center', italic: true });
     doc.moveDown();
 
-    // Student info
-    doc.fontSize(14).text(`Student: ${student.name}`);
-    doc.text(`Assessment: ${assessment.name}`);
+    // Student info (strip control characters for safe PDF rendering)
+    const safeStudentName = student.name.replace(/[\x00-\x1F\x7F]/g, '');
+    const safeAssessName = assessment.name.replace(/[\x00-\x1F\x7F]/g, '');
+    doc.fontSize(14).text(`Student: ${safeStudentName}`);
+    doc.text(`Assessment: ${safeAssessName}`);
     doc.text(`Date: ${new Date(assessment.createdAt).toLocaleDateString()}`);
     doc.moveDown();
 

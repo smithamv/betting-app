@@ -740,7 +740,7 @@ function GameScreen({ code, studentId, studentName, sessionInfo, onComplete, ass
       setLoading(false);
       // result clearing is handled after flash completes above
     }
-  }, [code, studentId, onComplete]);
+  }, [code, studentId]);
 
   useEffect(() => { loadQuestion(); }, [loadQuestion]);
 
